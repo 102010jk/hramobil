@@ -2,12 +2,12 @@
 
 Logická hra ve stylu Queens / Meowdoku. Do mřížky umísti **verity** (krystalové maskoty) tak, aby
 
-- v každém **řádku**, každém **sloupci** a každé **barevné oblasti** byl přesně požadovaný počet verit (**1**, od levelu 61 **dvě**),
+- v každém **řádku**, každém **sloupci** a každé **barevné oblasti** byl přesně požadovaný počet verit (**1**, od levelu 61 **dvě**, od levelu 85 **tři**),
 - se **žádné dvě verity nedotýkaly**, ani úhlopříčně.
 
 Ve hře najdeš:
 
-- **levely 1–100** – volně volitelné; od 5×5 (5 verit) až po level 100: **17×17 se 34 veritami** (2 v každé řadě i oblasti),
+- **levely 1–100** – volně volitelné; od 5×5 (5 verit) až po levely 93–100: **13×13 se 39 veritami** (3 v každé řadě, sloupci i oblasti),
 - **3 životy** – špatně položená verita stojí život; po prohře **žádné oživení**, ale **podrobný rozbor**: co bylo u každé chyby špatně, kde verita opravdu byla, jaký lepší tah šel v tu chvíli udělat a na co si dát příště pozor,
 - **křížkování** – ťuknutí = křížek, tažením zakřížkuješ víc polí; **dvojklik = verita**,
 - **fixy** – přepínatelný režim, ve kterém si kreslíš po mřížce (barvy, tloušťka, guma, zpět),

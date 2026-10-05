@@ -2,7 +2,7 @@
 // move was at that moment, and what to watch out for next time.
 import {
   UNKNOWN, STAR, EMPTY, cellName, unitName, propagate, testStar, findStep,
-  applyStep, REGION_NAMES, inUnit,
+  applyStep, REGION_NAMES, inUnit, joinCz,
 } from './engine.js';
 
 /**
@@ -59,7 +59,7 @@ function whereItBelonged(P, c) {
     const key = names.join(',');
     if (seen.has(key)) continue;
     seen.add(key);
-    out.push(`${inUnit(P, u)} ${P.k === 1 ? 'patřila verita na' : 'patřily verity na'} ${names.join(' a ')}`);
+    out.push(`${inUnit(P, u)} ${P.k === 1 ? 'patřila verita na' : 'patřily verity na'} ${joinCz(names)}`);
   }
   return 'Správně: ' + out.join('; ') + '.';
 }

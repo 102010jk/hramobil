@@ -1,5 +1,5 @@
 import {
-  decodePuzzle, transformPuzzle, levelParams, findStep, applyStep, logicSolve,
+  decodePuzzle, transformPuzzle, levelParams, generatePuzzle, encodePuzzle, findStep, applyStep, logicSolve,
   cellName, STAR, EMPTY, REGION_COLORS,
 } from './engine.js';
 import { buildReport, knowledgeFromSnapshot, TYPE_LABEL } from './explain.js';
@@ -94,6 +94,15 @@ async function loadLevels() {
 /** Puzzle for (level, attempt): rotate through stored grids, then symmetries + recolouring. */
 function puzzleFor(level, attempt) {
   const list = LEVELS.levels[String(level)];
+  if (!list || !list.length) {
+    // level missing from levels.json: generate it on the fly
+    const p = levelParams(level);
+    for (let t = 0; t < 20; t++) {
+      const r = generatePuzzle(p.n, p.k, level * 1000003 + attempt * 7919 + t * 104729, { maxLevel: p.maxTech, maxTries: 6 });
+      if (r) return decodePuzzle(transformPuzzle(encodePuzzle(r.P), 0, level * 7919 + attempt));
+    }
+    throw new Error('Level se nepodařilo vygenerovat');
+  }
   const base = list[attempt % list.length];
   const sym = Math.floor(attempt / list.length) % 8;
   return decodePuzzle(transformPuzzle(base, sym, level * 7919 + attempt * 104729 + 17));
@@ -151,7 +160,7 @@ function updatePicker() {
   $('#pick-num').textContent = picked;
   $('#pick-play').textContent = `Hrát level ${picked}`;
   $('#pick-range').value = picked;
-  $('#pick-info').textContent = `Mřížka ${p.n}×${p.n} · ${p.stars} verit · ${p.k === 1 ? '1 verita' : '2 verity'} v každé řadě i oblasti`;
+  $('#pick-info').textContent = `Mřížka ${p.n}×${p.n} · ${p.stars} verit · ${p.k === 1 ? '1 verita' : p.k + ' verity'} v každé řadě i oblasti`;
   const tb = $('#pick-tier');
   tb.textContent = p.tier;
   tb.className = 'tier-badge tier-' + p.tier;
@@ -180,7 +189,10 @@ async function startLevel(level, fresh = false) {
   const attempt = attempts[level] || 0;
   attempts[level] = attempt + 1;
   saveProgress();
-  const puzzle = puzzleFor(level, attempt);
+  const hasData = LEVELS.levels[String(level)];
+  if (!hasData) { $('#loading').hidden = false; await new Promise((r) => setTimeout(r, 50)); }
+  let puzzle;
+  try { puzzle = puzzleFor(level, attempt); } finally { $('#loading').hidden = true; }
   game = {
     level, attempt, puzzle: { n: puzzle.n, k: puzzle.k },
     enc: null, cells: new Array(puzzle.N).fill(''), lives: MAX_LIVES, mistakes: [],
@@ -212,7 +224,7 @@ function enterGame() {
   closeHint();
   const p = levelParams(game.level);
   $('#g-level').textContent = `Level ${game.level}`;
-  $('#g-meta').textContent = `${p.tier} · ${P.n}×${P.n} · ${P.k === 1 ? '1 verita' : '2 verity'} na řadu`;
+  $('#g-meta').textContent = `${p.tier} · ${P.n}×${P.n} · ${P.k === 1 ? '1 verita' : P.k + ' verity'} na řadu`;
   buildBoard();
   renderLives();
   updateProgress();
@@ -319,7 +331,8 @@ const zoom = {
     if (this.s === 1) { this.x = 0; this.y = 0; return; }
     const b = $('#board');
     const w = b.offsetWidth, h = b.offsetHeight;
-    const lim = (v, size) => Math.min(size * (this.s - 1) * 0.5 + 40, Math.max(-size * (this.s - 1) * 1 - 40 + size * (this.s - 1) * 0.5, v));
+    // the scaled board grows right/down from its origin; keep part of it on screen
+    const lim = (v, size) => Math.min(60, Math.max(-size * (this.s - 1) - 60, v));
     this.x = lim(this.x, w);
     this.y = lim(this.y, h);
   },
@@ -828,7 +841,7 @@ function openHowto() {
     <h3>Jak hrát</h3>
     <div class="howto-demo">${verita(0)}${verita(1)}${verita(2)}${verita(3)}${verita(4)}</div>
     <ul class="rules">
-      <li>V každém <b>řádku</b>, <b>sloupci</b> a každé <b>barevné oblasti</b> je přesně <b>jedna verita</b> (od levelu 61 <b>dvě</b>).</li>
+      <li>V každém <b>řádku</b>, <b>sloupci</b> a každé <b>barevné oblasti</b> je přesně <b>jedna verita</b> (od levelu 61 <b>dvě</b>, od levelu 85 <b>tři</b>). Kolik jich je, vidíš nahoře.</li>
       <li>Verity se <b>nesmí dotýkat</b> – ani rohem.</li>
       <li><b>Ťuknutí</b> = křížek (tady verita není). <b>Táhnutím</b> zakřížkuješ víc polí najednou.</li>
       <li><b>Dvojklik</b> = položit veritu. Špatná verita stojí <b>život</b> – máš 3.</li>

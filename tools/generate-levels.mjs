@@ -20,11 +20,17 @@ if (!isMainThread) {
     const p = E.levelParams(level);
     const accept = (r) => r.maxLevel >= Math.min(p.minTech, p.maxTech);
     const t0 = Date.now();
-    let out = null;
-    for (let attempt = 0; attempt < 30 && !out; attempt++) {
+    // top levels: generate several candidates and keep the one needing the most hard steps
+    const want = level >= 93 ? 4 : level >= 77 ? 2 : 1;
+    const hardness = (lc) => lc[4] * 3 + lc[3] * 2 + lc[2];
+    let out = null, found = 0;
+    for (let attempt = 0; attempt < 40 && found < want; attempt++) {
       const seed = level * 1000003 + variant * 7919 + attempt * 104729;
       const r = E.generatePuzzle(p.n, p.k, seed, { maxLevel: p.maxTech, accept, maxTries: 4 });
-      if (r) out = { ...E.encodePuzzle(r.P), m: r.rating.maxLevel, lc: r.rating.levelCounts };
+      if (!r) continue;
+      found++;
+      const cand = { ...E.encodePuzzle(r.P), m: r.rating.maxLevel, lc: r.rating.levelCounts };
+      if (!out || hardness(cand.lc) > hardness(out.lc)) out = cand;
     }
     if (out) delete out.c;
     parentPort.postMessage({ level, variant, puzzle: out, ms: Date.now() - t0 });
@@ -35,7 +41,7 @@ if (!isMainThread) {
     return acc;
   }, []));
   const from = +(args.from || 1), to = +(args.to || 100);
-  const variantsFor = (level) => +(args.variants || (level <= 60 ? 6 : level <= 90 ? 4 : 3));
+  const variantsFor = (level) => +(args.variants || (level <= 60 ? 5 : 4));
   const nWorkers = +(args.workers || Math.max(1, cpus().length));
   const cache = existsSync(cachePath) ? JSON.parse(readFileSync(cachePath, 'utf8')) : {};
   if (!existsSync(cachePath) && existsSync(outPath) && !args.fresh) {

@@ -206,7 +206,7 @@ export function unitName(P, u, form = 'nom') {
   if (t === 'col') return (form === 'loc' ? 'sloupci ' : 'sloupec ') + COL_LETTERS[i];
   const name = REGION_NAMES[P.colorOf ? P.colorOf[i] : i] || ('#' + (i + 1));
   if (form === 'loc') return 'oblasti ' + name.replace(/á$/, 'é');
-  if (form === 'acc') return 'oblast ' + name;
+  if (form === 'acc') return 'oblast ' + name.replace(/á$/, 'ou');
   return 'oblast ' + name;
 }
 
@@ -441,7 +441,7 @@ function stepFullUnit(P, st) {
   for (let u = 0; u < P.units.length; u++) {
     const { s, unk } = unitStats(P, st, u);
     if (s === k && unk.length) {
-      const text = `${cap(unitName(P, u, 'nom'))} už má ${k === 1 ? 'svou veritu' : `všech ${k} verit`}. Ostatní pole ${inUnit(P, u)} můžeš zakřížkovat.`;
+      const text = `${cap(unitName(P, u, 'nom'))} už má ${k === 1 ? 'svou veritu' : `všechny ${k} verity`}. Ostatní pole ${inUnit(P, u)} můžeš zakřížkovat.`;
       return { tech: 'full-unit', action: 'cross', cells: unk, focus: Array.from(P.units[u]).filter((c) => st[c] === STAR), units: [u], text };
     }
   }
@@ -502,7 +502,7 @@ function stepConfine(P, st, maxM) {
           text = `Všechna volná pole, kde může ležet ${k === 1 ? 'verita' : 'zbývající verity'} pro ${sNames[0]}, leží ${inUnit(P, Tarr[0])}. ` +
             `${cap(unitName(P, Tarr[0], 'nom'))} tedy ${k === 1 ? 'svou veritu' : 'své verity'} musí mít právě na těchto polích – ostatní volná pole ${inUnit(P, Tarr[0])} (${listCells(P, cells)}) můžeš zakřížkovat.`;
         } else {
-          text = `${cap(joinCz(sNames))} mají všechna svá volná pole jen v těchto řadách/oblastech: ${joinCz(tNames)}. ` +
+          text = `${cap(joinCz(S.map((u) => unitName(P, u, 'nom'))))} mají všechna svá volná pole jen v těchto řadách/oblastech: ${joinCz(tNames)}. ` +
             `Ty proto musí své verity dostat právě od nich – ostatní pole v nich (${listCells(P, cells)}) jsou prázdná.`;
         }
         return { tech: m === 1 ? 'confine' : 'confine-multi', action: 'cross', cells, focus, units: [...S, ...Tarr], text };
@@ -512,7 +512,7 @@ function stepConfine(P, st, maxM) {
   return null;
 }
 
-function joinCz(list) {
+export function joinCz(list) {
   if (list.length <= 1) return list.join('');
   return list.slice(0, -1).join(', ') + ' a ' + list[list.length - 1];
 }
@@ -641,8 +641,10 @@ export function isSolvedState(P, st) {
 function randomSolution(n, k, rng) {
   // Row by row, choose k non-adjacent columns, no vertical/diagonal touching.
   const opts = [];
-  if (k === 1) for (let c = 0; c < n; c++) opts.push([c]);
-  else for (let a = 0; a < n; a++) for (let b = a + 2; b < n; b++) opts.push([a, b]);
+  (function build(start, acc) {
+    if (acc.length === k) { opts.push(acc.slice()); return; }
+    for (let c = start; c < n; c++) { acc.push(c); build(c + 2, acc); acc.pop(); }
+  })(0, []);
   const colCnt = new Int8Array(n);
   const rows = [];
   let budget = 20000;
@@ -728,28 +730,34 @@ function growRegions(n, k, sol, rng) {
   if (k === 1) {
     shuffle(sol.slice(), rng).forEach((c, g) => { reg[c] = g; });
   } else {
-    // pair stars into regions, connecting each pair with a shortest path
+    // group k stars into each region, joining them with shortest paths
     const free = new Set(sol);
     const order = shuffle(sol.slice(), rng);
     let g = 0;
     for (const a of order) {
       if (!free.has(a)) continue;
       free.delete(a);
-      const ar = Math.floor(a / n), ac = a % n;
-      const cands = [...free].map((b) => ({ b, d: Math.abs(Math.floor(b / n) - ar) + Math.abs((b % n) - ac) + rng() * 1.5 }))
-        .sort((x, y) => x.d - y.d);
-      let done = false;
-      for (const { b } of cands.slice(0, 4)) {
-        const blocked = new Uint8Array(N);
-        for (let i = 0; i < N; i++) if (reg[i] >= 0 || (isStar[i] && i !== a && i !== b)) blocked[i] = 1;
-        const path = bfsPath(n, a, b, blocked);
-        if (!path) continue;
-        for (const c of path) reg[c] = g;
-        free.delete(b);
-        done = true;
-        break;
+      reg[a] = g;
+      const members = [a];
+      for (let m = 1; m < k; m++) {
+        const dist = (b) => Math.min(...members.map((x) => Math.abs(Math.floor(b / n) - Math.floor(x / n)) + Math.abs((b % n) - (x % n))));
+        const cands = [...free].map((b) => ({ b, d: dist(b) + rng() * 1.5 })).sort((x, y) => x.d - y.d);
+        let done = false;
+        for (const { b } of cands.slice(0, 4)) {
+          const blocked = new Uint8Array(N);
+          for (let i = 0; i < N; i++) if ((reg[i] >= 0 && reg[i] !== g) || (isStar[i] && i !== b && reg[i] !== g)) blocked[i] = 1;
+          // path from the nearest member
+          const from = members.slice().sort((x, y) => (Math.abs(Math.floor(b / n) - Math.floor(x / n)) + Math.abs((b % n) - (x % n))) - (Math.abs(Math.floor(b / n) - Math.floor(y / n)) + Math.abs((b % n) - (y % n))))[0];
+          const path = bfsPath(n, from, b, blocked);
+          if (!path) continue;
+          for (const c of path) reg[c] = g;
+          free.delete(b);
+          members.push(b);
+          done = true;
+          break;
+        }
+        if (!done) return null;
       }
-      if (!done) return null;
       g++;
     }
   }
@@ -809,15 +817,41 @@ function knownCount(st) {
 function logicify(n, k, reg, sol, rng, maxLevel, maxIter, tries = 10) {
   const solSet = new Set(sol);
   const key = sol.slice().sort((a, b) => a - b).join(',');
-  const CAP = 32;
-  const budget = k === 1 ? 20000 : 2500;
+  const CAP = k === 1 ? 64 : 256;
+  const budget = k === 1 ? 20000 : 12000;
   const countFrac = k === 1 ? 1 : 0.5;
+  // Move cell c (never a solution cell) into a neighbouring region. If that
+  // would split c's region, the piece cut off from the region's solution
+  // stars moves along with it. Returns the list of [cell, oldRegion] or null.
   const tryMove = (c) => {
     const g = reg[c];
     const targets = [...new Set(orthNeighbors(n, c).map((x) => reg[x]).filter((x) => x !== g))];
-    if (!targets.length || !regionConnectedWithout(n, reg, g, c)) return -1;
-    return targets[Math.floor(rng() * targets.length)];
+    if (!targets.length) return null;
+    const t = targets[Math.floor(rng() * targets.length)];
+    const moved = [c];
+    if (!regionConnectedWithout(n, reg, g, c)) {
+      // flood from the region's solution stars; everything unreached moves with c
+      const seen = new Set();
+      const q = sol.filter((x) => reg[x] === g);
+      q.forEach((x) => seen.add(x));
+      for (let qi = 0; qi < q.length; qi++) {
+        for (const y of orthNeighbors(n, q[qi])) if (y !== c && reg[y] === g && !seen.has(y)) { seen.add(y); q.push(y); }
+      }
+      // the region's own stars must stay connected to each other
+      const stars = sol.filter((x) => reg[x] === g);
+      const s0 = new Set([stars[0]]), q0 = [stars[0]];
+      for (let qi = 0; qi < q0.length; qi++) {
+        for (const y of orthNeighbors(n, q0[qi])) if (y !== c && reg[y] === g && !s0.has(y)) { s0.add(y); q0.push(y); }
+      }
+      if (stars.some((x) => !s0.has(x))) return null;
+      for (let i = 0; i < reg.length; i++) if (reg[i] === g && i !== c && !seen.has(i)) moved.push(i);
+      if (moved.length > Math.max(4, n)) return null;
+    }
+    const undo = moved.map((x) => [x, reg[x]]);
+    for (const x of moved) reg[x] = t;
+    return undo;
   };
+  const revert = (undo) => { for (const [x, g] of undo) reg[x] = g; };
   // Logic first (cheap, sound); then count the remaining solutions starting
   // from the logic state, which keeps the exhaustive search small.
   const evaluate = () => {
@@ -838,9 +872,14 @@ function logicify(n, k, reg, sol, rng, maxLevel, maxIter, tries = 10) {
   const stall = k === 1 ? 40 : 25;
   for (let iter = 0; iter < maxIter; iter++) {
     let ordered = [];
-    if (cur.counted) {
+    let sols = cur.counted ? cur.counted.solutions : [];
+    if (sols.length < 2 && cur.lr) {
+      // too many solutions to count: still sample a few to aim the moves
+      sols = solve(makePuzzle(n, k, reg, sol), 8, cur.lr.state, 3000).solutions;
+    }
+    if (sols.length) {
       const freq = new Map();
-      for (const s of cur.counted.solutions) {
+      for (const s of sols) {
         if (s.join(',') === key) continue;
         for (const c of s) if (!solSet.has(c)) freq.set(c, (freq.get(c) || 0) + 1);
       }
@@ -856,19 +895,18 @@ function logicify(n, k, reg, sol, rng, maxLevel, maxIter, tries = 10) {
     let best = null, tested = 0;
     for (const c of ordered) {
       if (tested >= tries) break;
-      const g = reg[c];
-      const t = tryMove(c);
-      if (t < 0) continue;
+      const undo = tryMove(c);
+      if (!undo) continue;
       tested++;
-      reg[c] = t;
+      const after = undo.map(([x]) => [x, reg[x]]);
       const e = evaluate();
-      reg[c] = g;
-      if (e.solved) { reg[c] = t; return { reg, rating: e.lr }; }
+      if (e.solved) return { reg, rating: e.lr };
+      revert(undo);
       e.score += rng() * 0.9;
-      if (!best || e.score > best.e.score) best = { c, t, e };
+      if (!best || e.score > best.e.score) best = { after, e };
     }
     if (!best) return null;
-    reg[best.c] = best.t;
+    for (const [x, g] of best.after) reg[x] = g;
     cur = best.e;
     // give up on this layout when we stop making progress
     if (cur.score > bestScore + 1) { bestScore = cur.score; bestIter = iter; } else if (iter - bestIter > stall) return null;
@@ -908,14 +946,11 @@ export function levelParams(level) {
   else if (L <= 40) { n = 9; k = 1; }
   else if (L <= 50) { n = 10; k = 1; }
   else if (L <= 60) { n = 11; k = 1; }
-  else if (L <= 66) { n = 10; k = 2; }
-  else if (L <= 72) { n = 11; k = 2; }
-  else if (L <= 78) { n = 12; k = 2; }
-  else if (L <= 84) { n = 13; k = 2; }
-  else if (L <= 90) { n = 14; k = 2; }
-  else if (L <= 95) { n = 15; k = 2; }
-  else if (L <= 99) { n = 16; k = 2; }
-  else { n = 17; k = 2; }
+  else if (L <= 68) { n = 10; k = 2; }
+  else if (L <= 76) { n = 11; k = 2; }
+  else if (L <= 84) { n = 12; k = 2; }
+  else if (L <= 92) { n = 12; k = 3; }
+  else { n = 13; k = 3; }
   // target maximum technique level the puzzle may need
   let maxTech;
   if (L <= 8) maxTech = 1;
