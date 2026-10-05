@@ -4,11 +4,11 @@ import {
 } from './engine.js';
 import { buildReport, knowledgeFromSnapshot, TYPE_LABEL } from './explain.js';
 import { Ink } from './ink.js';
+import { VERITY_TYPES, installSprite, pickTypes, typeById, typeInner } from './verities.js';
 
 // ------------------------------------------------------------------ constants
 
 const PALETTE = REGION_COLORS.map((c) => c.bg);
-const VCOLOR = REGION_COLORS.map((c) => c.fg);
 const MAX_LIVES = 3;
 const DOUBLE_TAP_MS = 320;
 
@@ -38,9 +38,11 @@ const fmtTime = (ms) => { const s = Math.floor(ms / 1000); const m = Math.floor(
 const vibrate = (p) => { if (settings.haptics && navigator.vibrate) try { navigator.vibrate(p); } catch { /* ignore */ } };
 const escapeHtml = (s) => String(s).replace(/[&<>]/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[ch]));
 
-function verita(colorIdx, cls = 'v') {
-  return `<svg class="${cls}" style="--vc:${VCOLOR[colorIdx % VCOLOR.length]}"><use href="#v${colorIdx % 8}"/></svg>`;
+function verita(typeId, cls = 'v') {
+  return `<svg class="${cls}" viewBox="-4 -4 108 108"><use href="#vt-${typeId}"/></svg>`;
 }
+/** verita type living in the region of cell i */
+const cellType = (i) => P.types[P.regions[i]];
 
 let toastTimer = 0;
 function toast(msg, bad = false) {
@@ -62,12 +64,13 @@ function show(name, push = true) {
   if (push) history.pushState({ screen: name }, '');
   if (name === 'home') renderHome();
   if (name === 'levels') renderLevels();
+  if (name === 'dex') renderDex();
 }
 window.addEventListener('popstate', (e) => {
   if (!$('#modal').hidden) { closeModal(); history.pushState({ screen: currentScreen }, ''); return; }
   const target = (e.state && e.state.screen) || 'home';
   if (currentScreen === 'game') { pauseGame(); }
-  if (currentScreen === 'report' || target === 'report' || target === 'game' && !game) { show('home', false); return; }
+  if (currentScreen === 'report' || target === 'report' || (target === 'game' && (!game || game.over))) { show('home', false); return; }
   show(target, false);
   if (target === 'game') resumeGame();
 });
@@ -121,6 +124,7 @@ function renderHome() {
     cont.hidden = false;
     $('#continue-sub').textContent = `Level ${saved.level} · ${'❤'.repeat(saved.lives)}`;
   } else cont.hidden = true;
+  $('#dex-sub').textContent = `${seen.size} / ${VERITY_TYPES.length} druhů verit`;
   $('#home-stats').innerHTML =
     `<div class="stat"><b>${done}</b><span>vyřešeno</span></div>` +
     `<div class="stat"><b>${stars}</b><span>hvězd</span></div>` +
@@ -199,7 +203,8 @@ async function startLevel(level, fresh = false) {
     hints: 0, solverUsed: false, elapsed: 0, undo: [], strokes: [], over: false,
   };
   P = puzzle;
-  game.enc = { n: P.n, k: P.k, r: Array.from(P.regions, (g) => g.toString(36)).join(''), s: Array.from(P.solution), c: Array.from(P.colorOf) };
+  P.types = pickTypes(P.n, level * 31337 + attempt * 7919 + 5);
+  game.enc = { n: P.n, k: P.k, r: Array.from(P.regions, (g) => g.toString(36)).join(''), s: Array.from(P.solution), c: Array.from(P.colorOf), t: P.types };
   enterGame();
   persist();
 }
@@ -210,6 +215,7 @@ function resumeSaved() {
   game = saved;
   game.undo = [];
   P = decodePuzzle(saved.enc);
+  P.types = saved.enc.t || pickTypes(P.n, saved.level * 31337 + saved.attempt * 7919 + 5);
   enterGame();
 }
 
@@ -288,7 +294,7 @@ function renderCell(i, anim = false) {
   const v = game.cells[i];
   d.classList.remove('locked', 'auto', 'placed', 'wrong');
   if (v === 'v') {
-    d.innerHTML = verita(P.colorOf[P.regions[i]]);
+    d.innerHTML = verita(cellType(i));
     if (anim) d.classList.add('placed');
   } else if (v === 'x' || v === 'a' || v === 'l') {
     d.innerHTML = '<span class="x"></span>';
@@ -467,6 +473,7 @@ function handleTap(c) {
   lastTap = { cell: c, time: now };
   if (v === 'v' || v === 'l') {
     if (v === 'l') toast('Tady byla chyba – pole je zamčené.');
+    else { const t = typeById(cellType(c)); toast(`${t.name} – ${t.d}`); }
     return;
   }
   const to = v === '' ? 'x' : '';
@@ -504,6 +511,7 @@ function placeVerita(c, fromHelper = false) {
   if (P.solMask[c]) {
     game.cells[c] = 'v';
     renderCell(c, true);
+    discover(cellType(c));
     vibrate(15);
     if (settings.autoCross) autoCross(c);
     updateProgress();
@@ -516,7 +524,7 @@ function placeVerita(c, fromHelper = false) {
   game.lives--;
   game.cells[c] = 'l';
   const d = cellEls[c];
-  d.innerHTML = verita(P.colorOf[P.regions[c]]);
+  d.innerHTML = verita(cellType(c));
   d.classList.add('wrong');
   vibrate([60, 40, 90]);
   renderLives();
@@ -584,7 +592,7 @@ function showWin(stars) {
   const lvl = game.level;
   const starHtml = [0, 1, 2].map((i) => `<span class="${i < stars ? '' : 'off'}">★</span>`).join('');
   openModal(`
-    <div class="big-emoji">${verita(4, 'win-v')}</div>
+    <div class="win-types">${[...new Set(P.types)].map((t) => verita(t, 'wt')).join('')}</div>
     <h3 style="text-align:center">${game.solverUsed ? 'Vyřešeno s řešičem' : 'Hotovo!'}</h3>
     <div class="win-stars">${starHtml}</div>
     <div class="kv">
@@ -598,7 +606,6 @@ function showWin(stars) {
       <button class="btn btn-glass" id="w-again">Nová mřížka – level ${lvl}</button>
       <button class="btn btn-glass" id="w-levels">Výběr levelu</button>
     </div>`, (m) => {
-    Object.assign(m.querySelector('.win-v').style, { width: '84px', height: '84px' });
     const nx = m.querySelector('#w-next');
     if (nx) nx.onclick = () => { closeModal(); startLevel(lvl + 1); };
     m.querySelector('#w-again').onclick = () => { closeModal(); startLevel(lvl); };
@@ -839,7 +846,7 @@ function openSettings() {
 function openHowto() {
   openModal(`
     <h3>Jak hrát</h3>
-    <div class="howto-demo">${verita(0)}${verita(1)}${verita(2)}${verita(3)}${verita(4)}</div>
+    <div class="howto-demo">${pickTypes(5, Date.now() & 0xffff).map((t) => verita(t)).join('')}</div>
     <ul class="rules">
       <li>V každém <b>řádku</b>, <b>sloupci</b> a každé <b>barevné oblasti</b> je přesně <b>jedna verita</b> (od levelu 61 <b>dvě</b>, od levelu 85 <b>tři</b>). Kolik jich je, vidíš nahoře.</li>
       <li>Verity se <b>nesmí dotýkat</b> – ani rohem.</li>
@@ -875,7 +882,7 @@ function miniBoard(state, opts = {}) {
     if (r === n - 1 || P.regions[i + n] !== g) d.classList.add('bb');
     if (c === n - 1 || P.regions[i + 1] !== g) d.classList.add('br');
     const v = state[i];
-    if (v === 'v' || v === 'sol') d.innerHTML = verita(P.colorOf[g]);
+    if (v === 'v' || v === 'sol') d.innerHTML = verita(P.types[g]);
     else if (v === 'x' || v === 'a') d.innerHTML = '<span class="x"></span>';
     else if (v === 'l') { d.innerHTML = '<span class="x"></span>'; d.classList.add('locked'); }
     if (v === 'sol') d.querySelector('svg').style.opacity = '.55';
@@ -1000,6 +1007,33 @@ function openWalkthrough() {
   });
 }
 
+// ------------------------------------------------------------------ Veritárium (collection of verity types)
+
+const seen = new Set(store.get('seen', []));
+
+function discover(id) {
+  if (seen.has(id)) return;
+  seen.add(id);
+  store.set('seen', [...seen]);
+  toast(`✨ Nová verita objevena: ${typeById(id).name}! (${seen.size}/${VERITY_TYPES.length})`);
+}
+
+function renderDex() {
+  $('#dex-intro').textContent = `Objeveno ${seen.size} z ${VERITY_TYPES.length} verit. Novou veritu objevíš, když ji správně položíš do mřížky. Každá barevná oblast má svůj druh.`;
+  const grid = $('#dex-grid');
+  grid.innerHTML = '';
+  VERITY_TYPES.forEach((t, i) => {
+    const known = seen.has(t.id);
+    const b = el('button', 'dex-card' + (known ? '' : ' unknown'), `${verita(t.id, 'dex-v')}<b>${known ? t.name : '???'}</b><small>#${i + 1}</small>`);
+    b.addEventListener('click', () => {
+      if (!known) { toast('Tuhle veritu jsi ještě nepotkal/a. Hraj dál!'); return; }
+      openModal(`<div class="dex-big">${verita(t.id, 'dex-big-v')}</div><h3 style="text-align:center">${t.name}</h3><p style="text-align:center">${escapeHtml(t.d)}</p>
+        <div class="modal-actions"><button class="btn btn-primary" id="dx-ok">Zavřít</button></div>`, (m) => { m.querySelector('#dx-ok').onclick = closeModal; });
+    });
+    grid.appendChild(b);
+  });
+}
+
 // ------------------------------------------------------------------ wiring
 
 $('#btn-play').addEventListener('click', () => {
@@ -1010,9 +1044,13 @@ $('#btn-play').addEventListener('click', () => {
 $('#btn-continue').addEventListener('click', async () => { await loadLevels(); resumeSaved(); });
 $('#btn-levels').addEventListener('click', () => { picked = nextLevel(); show('levels'); });
 $('#btn-howto').addEventListener('click', openHowto);
+$('#btn-dex').addEventListener('click', () => show('dex'));
 $('#btn-settings').addEventListener('click', openSettings);
 $('#game-back').addEventListener('click', () => { pauseGame(); show('home'); });
 
+installSprite();
+$('#logo-verita').innerHTML = typeInner(typeById('verity'));
+$('#loading-verita').innerHTML = typeInner(typeById('electricity'));
 ink = new Ink($('#ink'), $('#board'));
 buildInkTools();
 history.replaceState({ screen: 'home' }, '');

@@ -1,5 +1,5 @@
 /* Veritdoku service worker – offline hra (stale-while-revalidate). */
-const CACHE = 'veritdoku-v2';
+const CACHE = 'veritdoku-v3';
 
 const PRECACHE = [
   './',
@@ -9,6 +9,7 @@ const PRECACHE = [
   './js/engine.js',
   './js/explain.js',
   './js/ink.js',
+  './js/verities.js',
   './levels.json',
   './manifest.webmanifest',
   './icons/icon.svg',

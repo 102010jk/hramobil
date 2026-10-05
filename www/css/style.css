@@ -187,7 +187,7 @@ input[type=range] { width: 100%; accent-color: var(--accent); height: 28px; }
 .cell.auto .x { opacity: .4; }
 .cell.locked .x::before, .cell.locked .x::after { background: #d1123f; }
 .cell.locked .x { opacity: 1; width: 50%; height: 50%; }
-.cell svg.v { width: 84%; height: 84%; position: absolute; filter: drop-shadow(0 2px 3px rgba(0,0,0,.35)); }
+.cell svg.v { width: 94%; height: 94%; position: absolute; filter: drop-shadow(0 2px 3px rgba(0,0,0,.35)); }
 .cell.placed svg.v { animation: vIn .38s cubic-bezier(.3, 1.6, .5, 1); }
 @keyframes vIn { from { transform: scale(.2) rotate(-25deg); opacity: 0; } to { transform: none; opacity: 1; } }
 .cell.wrong { animation: shake .45s ease; }
@@ -316,3 +316,27 @@ input[type=range] { width: 100%; accent-color: var(--accent); height: 28px; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }
 }
+
+/* ---------- verity types: Veritárium & win ---------- */
+.btn-dex { background: linear-gradient(135deg, rgba(255, 95, 162, .22), rgba(139, 123, 255, .22)); border: 1px solid rgba(255, 95, 162, .4); }
+.dex-intro { color: var(--muted); margin: 6px 2px 12px; line-height: 1.45; font-size: 14px; }
+.dex-grid {
+  flex: 1; overflow-y: auto; display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px;
+  padding-bottom: 24px; align-content: start; -webkit-overflow-scrolling: touch;
+}
+@media (min-width: 480px) { .dex-grid { grid-template-columns: repeat(4, 1fr); } }
+.dex-card {
+  background: var(--panel); border: 1px solid var(--border); border-radius: 18px; padding: 10px 6px 8px;
+  display: flex; flex-direction: column; align-items: center; gap: 2px; transition: transform .12s;
+}
+.dex-card:active { transform: scale(.95); }
+.dex-card b { font-size: 13px; }
+.dex-card small { font-size: 10px; color: var(--muted); }
+.dex-v { width: 68px; height: 68px; filter: drop-shadow(0 4px 8px rgba(0,0,0,.4)); }
+.dex-card.unknown .dex-v { filter: brightness(0) invert(1) opacity(.22); }
+.dex-card.unknown b { color: var(--muted); }
+.dex-big { display: flex; justify-content: center; }
+.dex-big-v { width: 150px; height: 150px; filter: drop-shadow(0 12px 28px rgba(139, 123, 255, .5)); animation: bob 3.2s ease-in-out infinite; }
+.win-types { display: flex; flex-wrap: wrap; justify-content: center; gap: 2px; margin-bottom: 6px; }
+.wt { width: 42px; height: 42px; animation: vIn .5s cubic-bezier(.3, 1.6, .5, 1) both; }
+.howto-demo svg { width: 48px; height: 48px; }

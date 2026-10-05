@@ -1,11 +1,13 @@
 # Veritdoku
 
-Logická hra ve stylu Queens / Meowdoku. Do mřížky umísti **verity** (krystalové maskoty) tak, aby
+Logická hra ve stylu Queens / Meowdoku. Do mřížky umísti **verity** tak, aby
 
 - v každém **řádku**, každém **sloupci** a každé **barevné oblasti** byl přesně požadovaný počet verit (**1**, od levelu 61 **dvě**, od levelu 85 **tři**),
 - se **žádné dvě verity nedotýkaly**, ani úhlopříčně.
 
 Ve hře najdeš:
+
+- **86 druhů verit** – Cruelty, Lovity, Obesity, Gravity, Toxicity, Celebrity, Insanity, Royalty, Anxiety, Chillity… každá barevná oblast má svůj druh; objevené verity se sbírají ve **Veritáriu**,
 
 - **levely 1–100** – volně volitelné; od 5×5 (5 verit) až po levely 93–100: **13×13 se 39 veritami** (3 v každé řadě, sloupci i oblasti),
 - **3 životy** – špatně položená verita stojí život; po prohře **žádné oživení**, ale **podrobný rozbor**: co bylo u každé chyby špatně, kde verita opravdu byla, jaký lepší tah šel v tu chvíli udělat a na co si dát příště pozor,
@@ -58,6 +60,7 @@ APK se automaticky staví při každém pushi (GitHub Actions + Capacitor).
   - `js/engine.js` – pravidla, exhaustivní řešič, generátor a vysvětlující logický řešič
   - `js/explain.js` – rozbor chyb po prohře
   - `js/ink.js` – fixy (kreslení)
+  - `js/verities.js` – druhy verit (SVG skládané z těla, očí, pusy a doplňků)
   - `js/main.js` – UI a herní logika
 - `tools/` – generátor levelů a self-test
 - `assets/` – zdroje ikony a splash screenu pro `@capacitor/assets`
