@@ -1,5 +1,5 @@
 /* Veritdoku service worker – offline hra (stale-while-revalidate). */
-const CACHE = 'veritdoku-v1';
+const CACHE = 'veritdoku-v2';
 
 const PRECACHE = [
   './',
