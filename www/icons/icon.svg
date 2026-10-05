@@ -1,0 +1,64 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+<defs>
+  <radialGradient id="bg" cx="50%" cy="38%" r="80%">
+    <stop offset="0" stop-color="#262a63"/>
+    <stop offset="0.55" stop-color="#141638"/>
+    <stop offset="1" stop-color="#0b0d17"/>
+  </radialGradient>
+  <linearGradient id="gem" x1="0.1" y1="0" x2="0.9" y2="1">
+    <stop offset="0" stop-color="#8ff7ff"/>
+    <stop offset="0.45" stop-color="#6f86ff"/>
+    <stop offset="1" stop-color="#b56cff"/>
+  </linearGradient>
+  <linearGradient id="crown" x1="0" y1="0" x2="0" y2="1">
+    <stop offset="0" stop-color="#d9fdff"/>
+    <stop offset="1" stop-color="#8fb4ff"/>
+  </linearGradient>
+  <radialGradient id="halo" cx="50%" cy="50%" r="50%">
+    <stop offset="0" stop-color="#6f86ff" stop-opacity="0.55"/>
+    <stop offset="0.6" stop-color="#8a5cff" stop-opacity="0.18"/>
+    <stop offset="1" stop-color="#8a5cff" stop-opacity="0"/>
+  </radialGradient>
+  <filter id="soft" x="-30%" y="-30%" width="160%" height="160%"><feGaussianBlur stdDeviation="22"/></filter>
+  <filter id="ds" x="-30%" y="-30%" width="160%" height="170%"><feDropShadow dx="0" dy="14" stdDeviation="14" flood-color="#000" flood-opacity="0.35"/></filter>
+</defs>
+<rect width="1024" height="1024" rx="0" fill="url(#bg)"/>
+<g stroke="#8fa0ff" stroke-opacity="0.09" stroke-width="3"><line x1="170.66666666666666" y1="0" x2="170.66666666666666" y2="1024"/><line x1="0" y1="170.66666666666666" x2="1024" y2="170.66666666666666"/><line x1="341.3333333333333" y1="0" x2="341.3333333333333" y2="1024"/><line x1="0" y1="341.3333333333333" x2="1024" y2="341.3333333333333"/><line x1="512" y1="0" x2="512" y2="1024"/><line x1="0" y1="512" x2="1024" y2="512"/><line x1="682.6666666666666" y1="0" x2="682.6666666666666" y2="1024"/><line x1="0" y1="682.6666666666666" x2="1024" y2="682.6666666666666"/><line x1="853.3333333333333" y1="0" x2="853.3333333333333" y2="1024"/><line x1="0" y1="853.3333333333333" x2="1024" y2="853.3333333333333"/></g>
+<g transform="translate(512 512) scale(1.08) translate(-512 -540)">
+<g filter="url(#ds)">
+  <ellipse cx="512" cy="540" rx="400" ry="400" fill="url(#halo)"/>
+  <polygon points="380,282 644,282 762,424 512,792 262,424" fill="#8a7bff" opacity="0.7" filter="url(#soft)"/>
+  <g stroke-linejoin="round" stroke-linecap="round">
+    <polygon points="380,282 644,282 762,424 512,792 262,424" fill="url(#gem)" stroke="url(#gem)" stroke-width="44"/>
+    <!-- crown -->
+    <polygon points="380,282 644,282 762,424 262,424" fill="url(#crown)" opacity="0.55"/>
+    <polygon points="380,282 644,282 590,424 434,424" fill="#ffffff" opacity="0.28"/>
+    <polygon points="262,424 380,282 434,424" fill="#ffffff" opacity="0.12"/>
+    <polygon points="762,424 644,282 590,424" fill="#3b2fb0" opacity="0.18"/>
+    <!-- pavilion shading -->
+    <polygon points="590,424 762,424 512,792" fill="#4a2fd0" opacity="0.28"/>
+    <polygon points="262,424 434,424 512,792" fill="#ffffff" opacity="0.10"/>
+    <g fill="none" stroke="#ffffff" stroke-opacity="0.45" stroke-width="7">
+      <polyline points="262,424 762,424"/>
+      <polyline points="380,282 434,424 512,792"/>
+      <polyline points="644,282 590,424 512,792"/>
+    </g>
+  </g>
+  <!-- sparkle -->
+  <path d="M668 330 q10 40 40 50 q-30 10 -40 50 q-10 -40 -40 -50 q30 -10 40 -50z" fill="#fff" opacity="0.95" transform="translate(0,-8) scale(1)"/>
+  <!-- face -->
+  <g>
+    <ellipse cx="438" cy="548" rx="46" ry="54" fill="#fff"/>
+    <ellipse cx="586" cy="548" rx="46" ry="54" fill="#fff"/>
+    <ellipse cx="446" cy="556" rx="27" ry="34" fill="#171a3d"/>
+    <ellipse cx="594" cy="556" rx="27" ry="34" fill="#171a3d"/>
+    <circle cx="455" cy="540" r="11" fill="#fff"/>
+    <circle cx="603" cy="540" r="11" fill="#fff"/>
+    <circle cx="438" cy="574" r="5" fill="#fff" opacity="0.8"/>
+    <circle cx="586" cy="574" r="5" fill="#fff" opacity="0.8"/>
+    <ellipse cx="372" cy="624" rx="30" ry="17" fill="#ff7fc8" opacity="0.55"/>
+    <ellipse cx="652" cy="624" rx="30" ry="17" fill="#ff7fc8" opacity="0.55"/>
+    <path d="M478 626 q34 38 68 0" fill="none" stroke="#171a3d" stroke-width="13" stroke-linecap="round"/>
+  </g>
+</g></g>
+</svg>

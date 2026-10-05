@@ -1,0 +1,212 @@
+<!doctype html>
+<html lang="cs">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+  <meta name="theme-color" content="#0b0d17">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="description" content="Veritdoku – logická hra: rozmísti verity tak, aby v každém řádku, sloupci a barevné oblasti byl správný počet a žádné se nedotýkaly.">
+  <title>Veritdoku</title>
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <!-- Verita sprite: one body, several variants (assigned per colour region) -->
+  <svg width="0" height="0" style="position:absolute" aria-hidden="true">
+    <defs>
+      <linearGradient id="vg-shine" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0" stop-color="#fff" stop-opacity=".95"/>
+        <stop offset="1" stop-color="#fff" stop-opacity=".55"/>
+      </linearGradient>
+      <g id="v-face">
+        <ellipse cx="38" cy="54" rx="5.2" ry="6.4" fill="#141627"/>
+        <ellipse cx="62" cy="54" rx="5.2" ry="6.4" fill="#141627"/>
+        <circle cx="39.8" cy="51.6" r="1.9" fill="#fff"/>
+        <circle cx="63.8" cy="51.6" r="1.9" fill="#fff"/>
+        <path d="M44 66 Q50 71 56 66" fill="none" stroke="#141627" stroke-width="3.4" stroke-linecap="round"/>
+      </g>
+    </defs>
+    <!-- 0: gem -->
+    <symbol id="v0" viewBox="0 0 100 100">
+      <path d="M30 14 H70 L90 38 L50 90 L10 38 Z" fill="var(--vc)" stroke="#141627" stroke-width="5" stroke-linejoin="round"/>
+      <path d="M30 14 L40 38 L50 14 L60 38 L70 14 M10 38 H90" fill="none" stroke="#141627" stroke-opacity=".28" stroke-width="2.4" stroke-linejoin="round"/>
+      <path d="M24 34 L32 20" stroke="#fff" stroke-opacity=".85" stroke-width="4" stroke-linecap="round"/>
+      <use href="#v-face"/>
+    </symbol>
+    <!-- 1: drop -->
+    <symbol id="v1" viewBox="0 0 100 100">
+      <path d="M50 8 C62 28 84 44 84 62 A34 32 0 0 1 16 62 C16 44 38 28 50 8 Z" fill="var(--vc)" stroke="#141627" stroke-width="5" stroke-linejoin="round"/>
+      <path d="M28 52 Q30 40 40 32" stroke="#fff" stroke-opacity=".85" stroke-width="4" fill="none" stroke-linecap="round"/>
+      <use href="#v-face" transform="translate(0 6)"/>
+    </symbol>
+    <!-- 2: crown blob -->
+    <symbol id="v2" viewBox="0 0 100 100">
+      <path d="M26 26 L34 8 L44 22 L50 6 L56 22 L66 8 L74 26 Z" fill="#ffd34d" stroke="#141627" stroke-width="4" stroke-linejoin="round"/>
+      <rect x="14" y="26" width="72" height="64" rx="30" fill="var(--vc)" stroke="#141627" stroke-width="5"/>
+      <path d="M24 50 Q26 38 36 34" stroke="#fff" stroke-opacity=".85" stroke-width="4" fill="none" stroke-linecap="round"/>
+      <use href="#v-face" transform="translate(0 6)"/>
+    </symbol>
+    <!-- 3: star -->
+    <symbol id="v3" viewBox="0 0 100 100">
+      <path d="M50 6 L62 34 L93 36 L69 56 L77 88 L50 71 L23 88 L31 56 L7 36 L38 34 Z" fill="var(--vc)" stroke="#141627" stroke-width="5" stroke-linejoin="round"/>
+      <use href="#v-face" transform="translate(0 2) scale(1)"/>
+    </symbol>
+    <!-- 4: hexagon -->
+    <symbol id="v4" viewBox="0 0 100 100">
+      <path d="M50 6 L88 28 V72 L50 94 L12 72 V28 Z" fill="var(--vc)" stroke="#141627" stroke-width="5" stroke-linejoin="round"/>
+      <path d="M22 40 L30 26" stroke="#fff" stroke-opacity=".85" stroke-width="4" stroke-linecap="round"/>
+      <use href="#v-face"/>
+    </symbol>
+    <!-- 5: heart -->
+    <symbol id="v5" viewBox="0 0 100 100">
+      <path d="M50 90 C14 66 6 46 10 32 C14 16 36 10 50 28 C64 10 86 16 90 32 C94 46 86 66 50 90 Z" fill="var(--vc)" stroke="#141627" stroke-width="5" stroke-linejoin="round"/>
+      <path d="M20 36 Q22 26 30 22" stroke="#fff" stroke-opacity=".85" stroke-width="4" fill="none" stroke-linecap="round"/>
+      <use href="#v-face" transform="translate(0 -4)"/>
+    </symbol>
+    <!-- 6: ghosty -->
+    <symbol id="v6" viewBox="0 0 100 100">
+      <path d="M16 90 V46 A34 34 0 0 1 84 46 V90 L72 80 L61 90 L50 80 L39 90 L28 80 Z" fill="var(--vc)" stroke="#141627" stroke-width="5" stroke-linejoin="round"/>
+      <path d="M26 44 Q28 30 40 24" stroke="#fff" stroke-opacity=".85" stroke-width="4" fill="none" stroke-linecap="round"/>
+      <use href="#v-face" transform="translate(0 -2)"/>
+    </symbol>
+    <!-- 7: antenna orb -->
+    <symbol id="v7" viewBox="0 0 100 100">
+      <path d="M50 22 V8" stroke="#141627" stroke-width="4" stroke-linecap="round"/>
+      <circle cx="50" cy="8" r="6" fill="#ff6b9a" stroke="#141627" stroke-width="3"/>
+      <circle cx="50" cy="58" r="36" fill="var(--vc)" stroke="#141627" stroke-width="5"/>
+      <path d="M26 50 Q28 36 40 30" stroke="#fff" stroke-opacity=".85" stroke-width="4" fill="none" stroke-linecap="round"/>
+      <use href="#v-face" transform="translate(0 4)"/>
+    </symbol>
+    <symbol id="i-heart" viewBox="0 0 24 24"><path d="M12 21s-7.5-4.6-9.6-9.3C.9 8.2 3 4.5 6.6 4.5c2 0 3.6 1.1 4.4 2.6.8-1.5 2.4-2.6 4.4-2.6 3.6 0 5.7 3.7 4.2 7.2C19.5 16.4 12 21 12 21z"/></symbol>
+  </svg>
+
+  <div id="app">
+    <!-- ============ HOME ============ -->
+    <section class="screen active" id="screen-home">
+      <div class="home-hero">
+        <div class="logo-row">
+          <svg class="logo-verita" style="--vc:#a78bfa"><use href="#v0"/></svg>
+        </div>
+        <h1 class="title">Veritdoku</h1>
+        <p class="subtitle">Logická hra pro chytré hlavy. 100 levelů, od pohodových po ultra těžké.</p>
+      </div>
+      <div class="home-actions">
+        <button class="btn btn-primary btn-xl" id="btn-continue" hidden>
+          <span class="btn-main">Pokračovat</span><span class="btn-sub" id="continue-sub"></span>
+        </button>
+        <button class="btn btn-primary btn-xl" id="btn-play">
+          <span class="btn-main">Hrát</span><span class="btn-sub" id="play-sub">Level 1</span>
+        </button>
+        <button class="btn btn-glass" id="btn-levels">Vybrat level 1–100</button>
+        <div class="btn-row">
+          <button class="btn btn-glass" id="btn-howto">Jak hrát</button>
+          <button class="btn btn-glass" id="btn-settings">Nastavení</button>
+        </div>
+      </div>
+      <div class="home-stats" id="home-stats"></div>
+    </section>
+
+    <!-- ============ LEVELS ============ -->
+    <section class="screen" id="screen-levels">
+      <header class="topbar">
+        <button class="icon-btn" data-back aria-label="Zpět">‹</button>
+        <h2>Vyber level</h2>
+        <span class="spacer"></span>
+      </header>
+      <div class="level-picker">
+        <div class="picker-card">
+          <div class="picker-head">
+            <div>
+              <div class="picker-level">Level <b id="pick-num">1</b></div>
+              <div class="picker-info" id="pick-info"></div>
+            </div>
+            <span class="tier-badge" id="pick-tier"></span>
+          </div>
+          <input type="range" min="1" max="100" value="1" id="pick-range" aria-label="Obtížnost levelu">
+          <div class="picker-scale"><span>1 · lehké</span><span>50</span><span>100 · ULTRA</span></div>
+          <button class="btn btn-primary" id="pick-play">Hrát level 1</button>
+        </div>
+        <div class="level-grid" id="level-grid"></div>
+      </div>
+    </section>
+
+    <!-- ============ GAME ============ -->
+    <section class="screen" id="screen-game">
+      <header class="topbar game-top">
+        <button class="icon-btn" id="game-back" aria-label="Zpět">‹</button>
+        <div class="game-title">
+          <div class="gt-level" id="g-level">Level 1</div>
+          <div class="gt-meta" id="g-meta"></div>
+        </div>
+        <div class="lives" id="g-lives"></div>
+      </header>
+      <div class="status-row">
+        <div class="chip" id="g-timer">0:00</div>
+        <div class="chip" id="g-progress">0 / 0</div>
+        <div class="chip mode-chip" id="g-mode-chip">Režim: hra</div>
+      </div>
+      <div class="board-wrap" id="board-wrap">
+        <div class="board-zoom" id="board-zoom">
+          <div class="board" id="board"></div>
+          <canvas class="ink" id="ink"></canvas>
+        </div>
+      </div>
+      <div class="hint-panel" id="hint-panel" hidden>
+        <div class="hint-head">
+          <span class="hint-title" id="hint-title">Nápověda</span>
+          <button class="icon-btn small" id="hint-close" aria-label="Zavřít">✕</button>
+        </div>
+        <p class="hint-text" id="hint-text"></p>
+        <div class="hint-actions">
+          <button class="btn btn-small btn-glass" id="hint-apply">Provést krok</button>
+          <button class="btn btn-small btn-glass" id="hint-next" hidden>Další krok</button>
+        </div>
+      </div>
+      <div class="ink-tools" id="ink-tools" hidden>
+        <div class="swatches" id="swatches"></div>
+        <button class="tool-chip" id="ink-width" aria-label="Tloušťka">●</button>
+        <button class="tool-chip" id="ink-eraser" aria-label="Guma">Guma</button>
+        <button class="tool-chip" id="ink-undo" aria-label="Zpět tah">↶</button>
+        <button class="tool-chip" id="ink-clear">Smazat</button>
+      </div>
+      <nav class="toolbar">
+        <button class="tool" id="t-undo"><span class="ti">↶</span><span>Zpět</span></button>
+        <button class="tool" id="t-mode"><span class="ti">✎</span><span>Fixy</span></button>
+        <button class="tool" id="t-hint"><span class="ti">💡</span><span>Nápověda</span></button>
+        <button class="tool" id="t-solver"><span class="ti">⚙</span><span>Řešič</span></button>
+        <button class="tool" id="t-menu"><span class="ti">⋯</span><span>Více</span></button>
+      </nav>
+      <div class="gesture-tip" id="gesture-tip">Ťukni = křížek · dvojklik = verita · táhni = víc křížků</div>
+    </section>
+
+    <!-- ============ REPORT (after losing) ============ -->
+    <section class="screen" id="screen-report">
+      <header class="topbar">
+        <span class="spacer"></span>
+        <h2>Rozbor hry</h2>
+        <span class="spacer"></span>
+      </header>
+      <div class="report" id="report"></div>
+    </section>
+  </div>
+
+  <!-- ============ MODALS ============ -->
+  <div class="modal" id="modal" hidden>
+    <div class="modal-card" id="modal-card"></div>
+  </div>
+  <div class="toast" id="toast"></div>
+  <div class="loading" id="loading" hidden>
+    <svg class="loading-verita" style="--vc:#7dd3fc"><use href="#v0"/></svg>
+    <div id="loading-text">Generuji mřížku…</div>
+  </div>
+
+  <script type="module" src="js/main.js"></script>
+</body>
+</html>
