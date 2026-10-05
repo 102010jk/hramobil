@@ -133,7 +133,7 @@ function blockerText(P, c, fail) {
 }
 
 const TIPS = {
-  conflict: 'Před položením verity si vždy zkontroluj 4 věci: řádek, sloupec, barevnou oblast a 8 okolních polí. Zapni si v Nastavení „Automatické křížkování“ – hra ti zakřížkuje všechno, kam už nic nepatří.',
+  conflict: 'Před položením verity si vždy zkontroluj 4 věci: řádek, sloupec, barevnou oblast a 8 okolních polí. Po každé položené veritě si v duchu (nebo křížky) „zhasni“ její řádek, sloupec, oblast a všech 8 sousedních polí – hra to za tebe nehlídá.',
   blocker: 'Než položíš veritu, podívej se, jestli by nevyřadila všechna volná pole nějaké oblasti nebo řady. Nejlepší začátek: najdi nejmenší oblasti a pole, která sousedí s celou oblastí.',
   contradiction: 'Když si nejsi jistý/á, zkus si veritu v duchu (nebo fixou) položit a dopočítej, co z toho plyne. Jakmile někde nezbude místo, máš důkaz, že tam verita není – a pole zakřížkuj.',
   guess: 'Nehádej. Když nevidíš jistý tah, hledej: (1) oblasti, které leží celé v jednom řádku/sloupci, (2) řady s posledními volnými poli, (3) dvojice oblastí uzavřené ve dvou řadách. Nápověda tě nic nestojí.',

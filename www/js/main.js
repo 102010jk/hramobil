@@ -24,7 +24,9 @@ const store = {
   del(key) { try { localStorage.removeItem('vd:' + key); } catch { /* ignore */ } },
 };
 
-const settings = Object.assign({ autoCross: true, haptics: true, showCoords: false, timer: true }, store.get('settings', {}));
+const settings = Object.assign({ autoCross: false, haptics: true, showCoords: false, timer: true }, store.get('settings', {}));
+// v2: crossing around a placed verita is the player's job now (keep it in your head)
+if ((settings.v || 1) < 2) { settings.autoCross = false; settings.v = 2; }
 const progress = store.get('progress', {}); // level -> { stars, best, wins, solver }
 const attempts = store.get('attempts', {}); // level -> number of grids started
 const saveSettings = () => store.set('settings', settings);
@@ -89,6 +91,7 @@ $('#modal').addEventListener('click', (e) => { if (e.target.id === 'modal' && !$
 let LEVELS = null;
 async function loadLevels() {
   if (LEVELS) return LEVELS;
+  if (window.__VERITDOKU_LEVELS__) { LEVELS = window.__VERITDOKU_LEVELS__; return LEVELS; } // single-file build
   const res = await fetch('levels.json');
   LEVELS = await res.json();
   return LEVELS;
@@ -162,9 +165,10 @@ function lastOfTier(l) { const t = levelParams(l).tier; while (l < 100 && levelP
 function updatePicker() {
   const p = levelParams(picked);
   $('#pick-num').textContent = picked;
-  $('#pick-play').textContent = `Hrát level ${picked}`;
+  $('#pick-play').textContent = `Hrát připravený level ${picked}`;
+  $('#pick-gen').textContent = `Vygenerovat novou mřížku · obtížnost ${picked}`;
   $('#pick-range').value = picked;
-  $('#pick-info').textContent = `Mřížka ${p.n}×${p.n} · ${p.stars} verit · ${p.k === 1 ? '1 verita' : p.k + ' verity'} v každé řadě i oblasti`;
+  $('#pick-info').textContent = `Mřížka ${p.n}×${p.n} · ${p.stars} verit · 1 verita v každém řádku, sloupci i barvě`;
   const tb = $('#pick-tier');
   tb.textContent = p.tier;
   tb.className = 'tier-badge tier-' + p.tier;
@@ -175,6 +179,7 @@ $('#pick-range').addEventListener('input', (e) => {
   document.querySelectorAll('.lvl').forEach((x) => x.classList.toggle('selected', +x.firstChild.textContent === picked));
 });
 $('#pick-play').addEventListener('click', () => startLevel(picked));
+$('#pick-gen').addEventListener('click', () => generateAndPlay(picked));
 
 // ------------------------------------------------------------------ game state
 
@@ -184,29 +189,90 @@ let cellEls = [];
 let timerId = 0;
 let ink = null;
 
-async function startLevel(level, fresh = false) {
+async function startLevel(level, fresh = false, enc = null) {
   await loadLevels();
   const saved = store.get('current', null);
-  if (saved && saved.level === level && !fresh) { resumeSaved(); return; }
+  if (saved && saved.level === level && !fresh && !enc) { resumeSaved(); return; }
   // starting another grid abandons the running one (it stays used up)
   if (saved) store.del('current');
   const attempt = attempts[level] || 0;
   attempts[level] = attempt + 1;
   saveProgress();
-  const hasData = LEVELS.levels[String(level)];
-  if (!hasData) { $('#loading').hidden = false; await new Promise((r) => setTimeout(r, 50)); }
   let puzzle;
-  try { puzzle = puzzleFor(level, attempt); } finally { $('#loading').hidden = true; }
+  if (enc) {
+    // freshly generated grid: only pick its colours
+    puzzle = decodePuzzle(transformPuzzle(enc, 0, (Math.random() * 1e9) | 0));
+  } else {
+    const hasData = LEVELS.levels[String(level)];
+    if (!hasData) { $('#loading').hidden = false; await new Promise((r) => setTimeout(r, 50)); }
+    try { puzzle = puzzleFor(level, attempt); } finally { $('#loading').hidden = true; }
+  }
   game = {
-    level, attempt, puzzle: { n: puzzle.n, k: puzzle.k },
+    level, attempt, generated: !!enc, puzzle: { n: puzzle.n, k: puzzle.k },
     enc: null, cells: new Array(puzzle.N).fill(''), lives: MAX_LIVES, mistakes: [],
     hints: 0, solverUsed: false, elapsed: 0, undo: [], strokes: [], over: false,
   };
   P = puzzle;
-  P.types = pickTypes(P.n, level * 31337 + attempt * 7919 + 5);
+  P.types = pickTypes(P.n, enc ? (Math.random() * 1e9) | 0 : level * 31337 + attempt * 7919 + 5);
   game.enc = { n: P.n, k: P.k, r: Array.from(P.regions, (g) => g.toString(36)).join(''), s: Array.from(P.solution), c: Array.from(P.colorOf), t: P.types };
   enterGame();
   persist();
+}
+
+// ------------------------------------------------------------------ endless mode: generate a brand-new grid
+
+let genWorker = null;
+let genJob = 0;
+function getWorker() {
+  if (genWorker) return genWorker;
+  try {
+    if (window.__VERITDOKU_WORKER_SRC__) {
+      genWorker = new Worker(URL.createObjectURL(new Blob([window.__VERITDOKU_WORKER_SRC__], { type: 'text/javascript' })));
+    } else {
+      genWorker = new Worker(new URL('./gen-worker.js', import.meta.url), { type: 'module' });
+    }
+  } catch { genWorker = null; }
+  return genWorker;
+}
+
+/** Generate a new grid of the given difficulty in the background and start it. */
+async function generateAndPlay(level) {
+  await loadLevels();
+  const worker = getWorker();
+  if (!worker) { startLevel(level, true); return; }
+  const id = ++genJob;
+  const p = levelParams(level);
+  const overlay = $('#loading');
+  const text = $('#loading-text');
+  const actions = $('#loading-actions');
+  const t0 = Date.now();
+  overlay.hidden = false;
+  actions.hidden = true;
+  const tick = () => {
+    const sec = Math.floor((Date.now() - t0) / 1000);
+    text.textContent = `Generuji novou mřížku ${p.n}×${p.n} (obtížnost ${level})… ${sec} s`;
+    if (sec >= 6) actions.hidden = false;
+  };
+  tick();
+  const timer = setInterval(tick, 500);
+  const finish = () => { clearInterval(timer); overlay.hidden = true; actions.hidden = true; };
+  const result = await new Promise((resolve) => {
+    worker.onmessage = (e) => { if (e.data.id === id) resolve({ enc: e.data.puzzle }); };
+    worker.onerror = () => resolve({ enc: null });
+    $('#loading-ready').onclick = () => resolve({ ready: true });
+    $('#loading-cancel').onclick = () => resolve({ cancel: true });
+    worker.postMessage({ id, level, seed: (Math.random() * 4294967295) >>> 0 });
+  });
+  finish();
+  if (result.ready || result.cancel) {
+    // abandon the running job: a fresh worker for next time
+    try { worker.terminate(); } catch { /* ignore */ }
+    genWorker = null;
+    if (result.ready) startLevel(level, true);
+    return;
+  }
+  if (result.enc) startLevel(level, true, result.enc);
+  else { toast('Novou mřížku se nepodařilo vygenerovat, beru připravenou.', true); startLevel(level, true); }
 }
 
 function resumeSaved() {
@@ -230,7 +296,7 @@ function enterGame() {
   closeHint();
   const p = levelParams(game.level);
   $('#g-level').textContent = `Level ${game.level}`;
-  $('#g-meta').textContent = `${p.tier} · ${P.n}×${P.n} · ${P.k === 1 ? '1 verita' : P.k + ' verity'} na řadu`;
+  $('#g-meta').textContent = `${p.tier} · ${P.n}×${P.n} · ${P.n} verit`;
   buildBoard();
   renderLives();
   updateProgress();
@@ -306,7 +372,7 @@ function renderCell(i, anim = false) {
 function fitBoard() {
   const wrap = $('#board-wrap');
   const w = wrap.clientWidth - 4, h = wrap.clientHeight - 4;
-  const size = Math.max(14, Math.floor(Math.min(w, h, 640) / P.n));
+  const size = Math.max(6, Math.floor(Math.min(w, h, 640) / P.n));
   $('#board').style.setProperty('--cell', size + 'px');
   zoom.reset();
   ink.resize(size * P.n, size * P.n);
@@ -323,7 +389,7 @@ function renderLives() {
 
 function updateProgress() {
   const placed = game.cells.filter((v) => v === 'v').length;
-  $('#g-progress').textContent = `${placed} / ${P.n * P.k} verit`;
+  $('#g-progress').textContent = `${placed}/${P.n * P.k} verit`;
 }
 
 // ------------------------------------------------------------------ zoom & pan (two fingers)
@@ -332,8 +398,18 @@ const zoom = {
   s: 1, x: 0, y: 0,
   apply() { $('#board-zoom').style.transform = `translate(${this.x}px, ${this.y}px) scale(${this.s})`; },
   reset() { this.s = 1; this.x = 0; this.y = 0; this.apply(); },
+  // allow zooming until a cell is ~44px wide
+  max() { const b = $('#board'); return Math.max(4, (44 * P.n) / Math.max(1, b.offsetWidth)); },
+  by(f) {
+    const b = $('#board');
+    const w = b.offsetWidth, h = b.offsetHeight;
+    const cx = (w / 2 - this.x) / this.s, cy = (h / 2 - this.y) / this.s;
+    this.s = Math.min(this.max(), Math.max(1, this.s * f));
+    this.x = w / 2 - cx * this.s; this.y = h / 2 - cy * this.s;
+    this.clamp(); this.apply();
+  },
   clamp() {
-    this.s = Math.min(4, Math.max(1, this.s));
+    this.s = Math.min(this.max(), Math.max(1, this.s));
     if (this.s === 1) { this.x = 0; this.y = 0; return; }
     const b = $('#board');
     const w = b.offsetWidth, h = b.offsetHeight;
@@ -390,7 +466,7 @@ wrap.addEventListener('pointermove', (e) => {
     const [a, b] = [...pointers.values()];
     const d = Math.hypot(a.x - b.x, a.y - b.y);
     const cx = (a.x + b.x) / 2, cy = (a.y + b.y) / 2;
-    const ns = Math.min(4, Math.max(1, gesture.s0 * d / gesture.d0));
+    const ns = Math.min(zoom.max(), Math.max(1, gesture.s0 * d / gesture.d0));
     const rect = wrap.getBoundingClientRect();
     const zr = $('#board-zoom');
     const ox = zr.offsetLeft + rect.left, oy = zr.offsetTop + rect.top;
@@ -603,12 +679,12 @@ function showWin(stars) {
     <p style="text-align:center;margin:0">${stars === 3 ? 'Perfektní – bez chyby a bez nápovědy!' : game.solverUsed ? 'Řešič ti pomohl. Zkus to příště sám/sama – hvězdy dostaneš jen bez řešiče.' : 'Pro 3 hvězdy: žádná chyba a žádná nápověda.'}</p>
     <div class="modal-actions">
       ${lvl < 100 ? `<button class="btn btn-primary" id="w-next">Další level (${lvl + 1})</button>` : ''}
-      <button class="btn btn-glass" id="w-again">Nová mřížka – level ${lvl}</button>
+      <button class="btn btn-glass" id="w-again">Vygenerovat novou – obtížnost ${lvl}</button>
       <button class="btn btn-glass" id="w-levels">Výběr levelu</button>
     </div>`, (m) => {
     const nx = m.querySelector('#w-next');
     if (nx) nx.onclick = () => { closeModal(); startLevel(lvl + 1); };
-    m.querySelector('#w-again').onclick = () => { closeModal(); startLevel(lvl); };
+    m.querySelector('#w-again').onclick = () => { closeModal(); generateAndPlay(lvl); };
     m.querySelector('#w-levels').onclick = () => { closeModal(); picked = Math.min(100, lvl + 1); show('levels'); };
   });
 }
@@ -756,10 +832,12 @@ function setMode(m) {
   $('#ink-tools').hidden = m !== 'ink';
   $('#ink').classList.toggle('active', m === 'ink');
   const chip = $('#g-mode-chip');
-  chip.textContent = m === 'ink' ? 'Režim: fixy ✎' : 'Režim: hra';
+  chip.textContent = m === 'ink' ? 'Fixy ✎' : 'Hra';
   chip.classList.toggle('drawing', m === 'ink');
   $('#t-undo').querySelector('span:last-child').textContent = m === 'ink' ? 'Zpět tah' : 'Zpět';
 }
+$('#zoom-in').addEventListener('click', () => zoom.by(1.6));
+$('#zoom-out').addEventListener('click', () => zoom.by(1 / 1.6));
 $('#t-mode').addEventListener('click', () => { setMode(mode === 'ink' ? 'play' : 'ink'); if (mode === 'ink') toast('Kresli prstem po mřížce. Dva prsty = zoom.'); });
 
 function buildInkTools() {
@@ -824,7 +902,7 @@ function openSettings() {
   const row = (key, title, sub) => `<label class="setting"><div>${title}<small>${sub}</small></div><span class="switch"><input type="checkbox" data-k="${key}" ${settings[key] ? 'checked' : ''}><span></span></span></label>`;
   openModal(`
     <h3>Nastavení</h3>
-    ${row('autoCross', 'Automatické křížkování', 'Po položení verity zakřížkuje okolí a plné řady/oblasti.')}
+    ${row('autoCross', 'Automatické křížkování (usnadnění)', 'Vypnuto = okolí verity si hlídáš sám/sama v hlavě. Zapnuto = hra po položení verity zakřížkuje okolí a plné řady.')}
     ${row('haptics', 'Vibrace', 'Jemná odezva při ťuknutí a chybě.')}
     ${row('timer', 'Zobrazit čas', 'Stopky během hry.')}
     <div class="modal-actions">
@@ -834,11 +912,16 @@ function openSettings() {
     m.querySelectorAll('input[data-k]').forEach((inp) => inp.addEventListener('change', () => { settings[inp.dataset.k] = inp.checked; saveSettings(); if (game) tick(); }));
     m.querySelector('#st-close').onclick = closeModal;
     m.querySelector('#st-reset').onclick = () => {
-      if (!confirm('Opravdu smazat všechny hvězdy a postup?')) return;
-      for (const k of Object.keys(progress)) delete progress[k];
-      for (const k of Object.keys(attempts)) delete attempts[k];
-      saveProgress(); store.del('current'); closeModal(); renderHome();
-      toast('Postup smazán.');
+      openModal(`<h3>Smazat postup?</h3><p>Smažou se všechny hvězdy, vyřešené levely i rozehraná hra. Objevené verity ve Veritáriu zůstanou.</p>
+        <div class="modal-actions"><button class="btn btn-danger" id="rs-yes">Smazat postup</button><button class="btn btn-glass" id="rs-no">Zrušit</button></div>`, (mm) => {
+        mm.querySelector('#rs-yes').onclick = () => {
+          for (const k of Object.keys(progress)) delete progress[k];
+          for (const k of Object.keys(attempts)) delete attempts[k];
+          saveProgress(); store.del('current'); closeModal(); renderHome();
+          toast('Postup smazán.');
+        };
+        mm.querySelector('#rs-no').onclick = closeModal;
+      });
     };
   });
 }
@@ -848,12 +931,13 @@ function openHowto() {
     <h3>Jak hrát</h3>
     <div class="howto-demo">${pickTypes(5, Date.now() & 0xffff).map((t) => verita(t)).join('')}</div>
     <ul class="rules">
-      <li>V každém <b>řádku</b>, <b>sloupci</b> a každé <b>barevné oblasti</b> je přesně <b>jedna verita</b> (od levelu 61 <b>dvě</b>, od levelu 85 <b>tři</b>). Kolik jich je, vidíš nahoře.</li>
+      <li>V každém <b>řádku</b>, <b>sloupci</b> a každé <b>barevné oblasti</b> je přesně <b>jedna verita</b>. Jedna barva = jedna verita.</li>
       <li>Verity se <b>nesmí dotýkat</b> – ani rohem.</li>
-      <li><b>Ťuknutí</b> = křížek (tady verita není). <b>Táhnutím</b> zakřížkuješ víc polí najednou.</li>
+      <li><b>Ťuknutí</b> = křížek (tady verita není). <b>Táhnutím</b> zakřížkuješ víc polí najednou. Okolí položené verity si hlídáš sám/sama – hra ho nekřížkuje.</li>
       <li><b>Dvojklik</b> = položit veritu. Špatná verita stojí <b>život</b> – máš 3.</li>
       <li>Když přijdeš o všechny životy, mřížka končí. Žádné oživení – ale dostaneš <b>podrobný rozbor</b>, co bylo špatně a jak to šlo líp.</li>
-      <li><b>Fixy</b>: přepni režim a kresli si po mřížce poznámky. <b>Dvěma prsty</b> zoomuješ.</li>
+      <li><b>Fixy</b>: přepni režim a kresli si po mřížce poznámky. <b>Dvěma prsty</b> nebo tlačítky <b>+ / −</b> zoomuješ (u obřích mřížek se hodí).</li>
+      <li><b>Obtížnost 1–100</b> si zvolíš sám/sama a hra ti pokaždé vygeneruje <b>novou mřížku</b> – nekonečně. Level 100 je mřížka 30×30 na dlouhé hraní.</li>
       <li><b>Nápověda</b> ukáže další logický krok s vysvětlením. <b>Řešič</b> umí vyřešit celou mřížku (pak bez hvězd).</li>
       <li>Každá mřížka má <b>jediné řešení</b> a dá se vyřešit čistou logikou – hádat nikdy není potřeba.</li>
     </ul>
@@ -949,23 +1033,27 @@ function gameOver() {
 
   const actions = el('div', 'modal-actions');
   actions.innerHTML = `
-    <button class="btn btn-primary" id="r-new">Nová mřížka – level ${game.level}</button>
-    ${game.level > 1 ? `<button class="btn btn-glass" id="r-easier">Zkusit lehčí – level ${game.level - 1}</button>` : ''}
+    <button class="btn btn-primary" id="r-new">Vygenerovat novou – obtížnost ${game.level}</button>
+    ${game.level > 1 ? `<button class="btn btn-glass" id="r-easier">Zkusit lehčí – obtížnost ${game.level - 1}</button>` : ''}
     <button class="btn btn-glass" id="r-levels">Výběr levelu</button>
     <button class="btn btn-glass" id="r-home">Domů</button>`;
   box.appendChild(actions);
   const lvl = game.level;
-  actions.querySelector('#r-new').onclick = () => startLevel(lvl);
+  actions.querySelector('#r-new').onclick = () => generateAndPlay(lvl);
   const easier = actions.querySelector('#r-easier');
-  if (easier) easier.onclick = () => startLevel(lvl - 1);
+  if (easier) easier.onclick = () => generateAndPlay(lvl - 1);
   actions.querySelector('#r-levels').onclick = () => { picked = lvl; show('levels'); };
   actions.querySelector('#r-home').onclick = () => show('home');
   show('report');
   box.scrollTop = 0;
 }
 
-function openWalkthrough() {
-  const result = logicSolve(P, 4, null, true);
+async function openWalkthrough() {
+  $('#loading-text').textContent = 'Připravuji postup řešení…';
+  $('#loading').hidden = false;
+  await new Promise((r) => setTimeout(r, 40));
+  let result;
+  try { result = logicSolve(P, 4, null, true); } finally { $('#loading').hidden = true; }
   const steps = result.steps;
   // frames: board state after each step
   const st = new Uint8Array(P.N);

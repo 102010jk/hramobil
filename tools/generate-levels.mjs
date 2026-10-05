@@ -20,17 +20,16 @@ if (!isMainThread) {
     const p = E.levelParams(level);
     const accept = (r) => r.maxLevel >= Math.min(p.minTech, p.maxTech);
     const t0 = Date.now();
-    // top levels: generate several candidates and keep the one needing the most hard steps
-    const want = level >= 93 ? 4 : level >= 77 ? 2 : 1;
-    const hardness = (lc) => lc[4] * 3 + lc[3] * 2 + lc[2];
+    // top levels: several candidates, keep the one needing the most hard steps
+    const want = level === 100 ? 2 : 1;
     let out = null, found = 0;
     for (let attempt = 0; attempt < 40 && found < want; attempt++) {
       const seed = level * 1000003 + variant * 7919 + attempt * 104729;
-      const r = E.generatePuzzle(p.n, p.k, seed, { maxLevel: p.maxTech, accept, maxTries: 4 });
+      const r = E.generatePuzzle(p.n, p.k, seed, { maxLevel: p.maxTech, accept, maxTries: 4, harden: p.harden });
       if (!r) continue;
       found++;
-      const cand = { ...E.encodePuzzle(r.P), m: r.rating.maxLevel, lc: r.rating.levelCounts };
-      if (!out || hardness(cand.lc) > hardness(out.lc)) out = cand;
+      const cand = { ...E.encodePuzzle(r.P), m: r.rating.maxLevel, lc: r.rating.levelCounts, h: Math.round(E.hardness(r.rating)) };
+      if (!out || cand.h > out.h) out = cand;
     }
     if (out) delete out.c;
     parentPort.postMessage({ level, variant, puzzle: out, ms: Date.now() - t0 });
@@ -41,7 +40,7 @@ if (!isMainThread) {
     return acc;
   }, []));
   const from = +(args.from || 1), to = +(args.to || 100);
-  const variantsFor = (level) => +(args.variants || (level <= 60 ? 5 : 4));
+  const variantsFor = (level) => +(args.variants || (level <= 60 ? 4 : level <= 84 ? 3 : 2));
   const nWorkers = +(args.workers || Math.max(1, cpus().length));
   const cache = existsSync(cachePath) ? JSON.parse(readFileSync(cachePath, 'utf8')) : {};
   if (!existsSync(cachePath) && existsSync(outPath) && !args.fresh) {
@@ -64,7 +63,7 @@ if (!isMainThread) {
     const levels = {};
     for (let l = 1; l <= 100; l++) {
       const list = cache[l] ? Object.values(cache[l]).filter(Boolean) : [];
-      if (list.length) levels[l] = list.map(({ lc, ...rest }) => rest);
+      if (list.length) levels[l] = list.map(({ lc, h, ...rest }) => rest);
     }
     writeFileSync(outPath, JSON.stringify({ version: 1, generated: new Date().toISOString(), levels }));
   };
@@ -83,7 +82,7 @@ if (!isMainThread) {
         cache[level] = cache[level] || {};
         cache[level][variant] = puzzle;
       }
-      console.log(`[${done}] level ${level} v${variant}: ${puzzle ? `${puzzle.n}x${puzzle.n} tech=${puzzle.m}` : 'FAILED'} ${(ms / 1000).toFixed(1)}s`);
+      console.log(`[${done}] level ${level} v${variant}: ${puzzle ? `${puzzle.n}x${puzzle.n} tech=${puzzle.m} hard=${puzzle.h} steps=${puzzle.lc}` : 'FAILED'} ${(ms / 1000).toFixed(1)}s`);
       write();
       next();
     });
