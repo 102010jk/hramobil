@@ -159,6 +159,7 @@ input[type=range] { width: 100%; accent-color: var(--accent); height: 28px; }
 }
 .board-zoom { position: relative; transform-origin: 0 0; will-change: transform; }
 .board {
+  --bw: max(1px, min(2px, calc(var(--cell) * .07)));
   display: grid; position: relative;
   grid-template-columns: repeat(var(--n), var(--cell));
   grid-auto-rows: var(--cell);
@@ -172,10 +173,10 @@ input[type=range] { width: 100%; accent-color: var(--accent); height: 28px; }
   display: grid; place-items: center;
   transition: filter .15s;
 }
-.cell.bt { border-top: 2px solid #141627; }
-.cell.bl { border-left: 2px solid #141627; }
-.cell.bb { border-bottom: 2px solid #141627; }
-.cell.br { border-right: 2px solid #141627; }
+.cell.bt { border-top: var(--bw) solid #141627; }
+.cell.bl { border-left: var(--bw) solid #141627; }
+.cell.bb { border-bottom: var(--bw) solid #141627; }
+.cell.br { border-right: var(--bw) solid #141627; }
 .cell .x {
   width: 42%; height: 42%; opacity: .78; position: absolute;
 }
@@ -291,7 +292,7 @@ input[type=range] { width: 100%; accent-color: var(--accent); height: 28px; }
 .tag-guess { background: rgba(139, 123, 255, .25); color: #c8bfff; }
 .sub { font-weight: 700; color: #fff; font-size: 13px; text-transform: uppercase; letter-spacing: .6px; margin: 12px 0 2px; opacity: .75; }
 .mini-board-wrap { display: flex; justify-content: center; margin: 10px 0 4px; }
-.mini-board { display: grid; grid-template-columns: repeat(var(--n), var(--mc)); grid-auto-rows: var(--mc); border-radius: 10px; overflow: hidden; box-shadow: 0 0 0 2px #141627; background: #141627; }
+.mini-board { --bw: max(1px, min(2px, calc(var(--mc) * .08))); display: grid; grid-template-columns: repeat(var(--n), var(--mc)); grid-auto-rows: var(--mc); border-radius: 10px; overflow: hidden; box-shadow: 0 0 0 2px #141627; background: #141627; }
 .mini-board .cell .x { width: 46%; height: 46%; }
 .legend { display: flex; gap: 12px; flex-wrap: wrap; justify-content: center; font-size: 12px; color: var(--muted); }
 .legend i { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 4px; vertical-align: -1px; }
@@ -340,3 +341,7 @@ input[type=range] { width: 100%; accent-color: var(--accent); height: 28px; }
 .win-types { display: flex; flex-wrap: wrap; justify-content: center; gap: 2px; margin-bottom: 6px; }
 .wt { width: 42px; height: 42px; animation: vIn .5s cubic-bezier(.3, 1.6, .5, 1) both; }
 .howto-demo svg { width: 48px; height: 48px; }
+.picker-note { margin: -2px 0 0; color: var(--muted); font-size: 13px; line-height: 1.4; }
+.loading-actions { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; }
+.zoom-chip { min-width: 34px; font-size: 16px; line-height: 1; padding: 5px 10px; }
+.status-row { flex-wrap: wrap; }

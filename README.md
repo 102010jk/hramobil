@@ -2,21 +2,22 @@
 
 Logická hra ve stylu Queens / Meowdoku. Do mřížky umísti **verity** tak, aby
 
-- v každém **řádku**, každém **sloupci** a každé **barevné oblasti** byl přesně požadovaný počet verit (**1**, od levelu 61 **dvě**, od levelu 85 **tři**),
+- v každém **řádku**, každém **sloupci** a každé **barevné oblasti** byla přesně **jedna verita** (jedna barva = jedna verita),
 - se **žádné dvě verity nedotýkaly**, ani úhlopříčně.
 
 Ve hře najdeš:
 
 - **86 druhů verit** – Cruelty, Lovity, Obesity, Gravity, Toxicity, Celebrity, Insanity, Royalty, Anxiety, Chillity… každá barevná oblast má svůj druh; objevené verity se sbírají ve **Veritáriu**,
 
-- **levely 1–100** – volně volitelné; od 5×5 (5 verit) až po levely 93–100: **13×13 se 39 veritami** (3 v každé řadě, sloupci i oblasti),
+- **obtížnost 1–100 a nekonečné generování** – zvolíš obtížnost a hra ti pokaždé vygeneruje úplně novou mřížku (od 5×5 po level 100: **30×30 = 30 verit**, na dlouhé hraní); k tomu 100 připravených levelů, které se načtou okamžitě,
 - **3 životy** – špatně položená verita stojí život; po prohře **žádné oživení**, ale **podrobný rozbor**: co bylo u každé chyby špatně, kde verita opravdu byla, jaký lepší tah šel v tu chvíli udělat a na co si dát příště pozor,
-- **křížkování** – ťuknutí = křížek, tažením zakřížkuješ víc polí; **dvojklik = verita**,
+- **křížkování** – ťuknutí = křížek, tažením zakřížkuješ víc polí; **dvojklik = verita**; okolí položené verity si hlídáš v hlavě (automatické křížkování je jen volitelné usnadnění),
 - **fixy** – přepínatelný režim, ve kterém si kreslíš po mřížce (barvy, tloušťka, guma, zpět),
 - **nápovědu a řešič** – logický „učitel“, který každý krok vysvětlí česky; řešič umí jít krok za krokem nebo vyřešit vše (pak bez hvězd),
 - **průvodce řešením** – celé řešení krok za krokem s vysvětlením,
 - každá mřížka má **jediné řešení** a jde vyřešit čistou logikou (ověřeno generátorem),
-- moderní tmavý design, zoom dvěma prsty, offline hraní (PWA / Android aplikace).
+- moderní tmavý design, zoom dvěma prsty nebo tlačítky +/−, offline hraní (PWA / Android aplikace),
+- `npm run build:single` vyrobí celou hru jako **jeden HTML soubor** (`dist/veritdoku.html`), který jde otevřít i bez internetu.
 
 ## Spuštění lokálně
 
@@ -61,6 +62,7 @@ APK se automaticky staví při každém pushi (GitHub Actions + Capacitor).
   - `js/explain.js` – rozbor chyb po prohře
   - `js/ink.js` – fixy (kreslení)
   - `js/verities.js` – druhy verit (SVG skládané z těla, očí, pusy a doplňků)
+  - `js/gen-worker.js` – generování nových mřížek na pozadí
   - `js/main.js` – UI a herní logika
 - `tools/` – generátor levelů a self-test
 - `assets/` – zdroje ikony a splash screenu pro `@capacitor/assets`

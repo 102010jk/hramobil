@@ -40,7 +40,7 @@
         <button class="btn btn-primary btn-xl" id="btn-play">
           <span class="btn-main">Hrát</span><span class="btn-sub" id="play-sub">Level 1</span>
         </button>
-        <button class="btn btn-glass" id="btn-levels">Vybrat level 1–100</button>
+        <button class="btn btn-glass" id="btn-levels">Nová hra · obtížnost 1–100</button>
         <button class="btn btn-glass btn-dex" id="btn-dex"><span class="btn-main">Veritárium</span><span class="btn-sub" id="dex-sub"></span></button>
         <div class="btn-row">
           <button class="btn btn-glass" id="btn-howto">Jak hrát</button>
@@ -54,21 +54,23 @@
     <section class="screen" id="screen-levels">
       <header class="topbar">
         <button class="icon-btn" data-back aria-label="Zpět">‹</button>
-        <h2>Vyber level</h2>
+        <h2>Nová hra</h2>
         <span class="spacer"></span>
       </header>
       <div class="level-picker">
         <div class="picker-card">
           <div class="picker-head">
             <div>
-              <div class="picker-level">Level <b id="pick-num">1</b></div>
+              <div class="picker-level">Obtížnost <b id="pick-num">1</b></div>
               <div class="picker-info" id="pick-info"></div>
             </div>
             <span class="tier-badge" id="pick-tier"></span>
           </div>
-          <input type="range" min="1" max="100" value="1" id="pick-range" aria-label="Obtížnost levelu">
+          <input type="range" min="1" max="100" value="1" id="pick-range" aria-label="Obtížnost 1 až 100">
           <div class="picker-scale"><span>1 · lehké</span><span>50</span><span>100 · ULTRA</span></div>
-          <button class="btn btn-primary" id="pick-play">Hrát level 1</button>
+          <button class="btn btn-primary" id="pick-gen">Vygenerovat novou mřížku</button>
+          <button class="btn btn-glass" id="pick-play">Hrát připravený level 1</button>
+          <p class="picker-note">Generování je nekonečné – pokaždé vznikne úplně nová mřížka s jediným řešením. Připravené levely se načtou okamžitě.</p>
         </div>
         <div class="level-grid" id="level-grid"></div>
       </div>
@@ -87,7 +89,9 @@
       <div class="status-row">
         <div class="chip" id="g-timer">0:00</div>
         <div class="chip" id="g-progress">0 / 0</div>
-        <div class="chip mode-chip" id="g-mode-chip">Režim: hra</div>
+        <div class="chip mode-chip" id="g-mode-chip">Hra</div>
+        <button class="chip zoom-chip" id="zoom-out" aria-label="Oddálit">−</button>
+        <button class="chip zoom-chip" id="zoom-in" aria-label="Přiblížit">+</button>
       </div>
       <div class="board-wrap" id="board-wrap">
         <div class="board-zoom" id="board-zoom">
@@ -153,6 +157,10 @@
   <div class="loading" id="loading" hidden>
     <svg class="loading-verita" id="loading-verita" viewBox="-4 -4 108 108"></svg>
     <div id="loading-text">Generuji mřížku…</div>
+    <div class="loading-actions" id="loading-actions" hidden>
+      <button class="btn btn-small btn-glass" id="loading-ready">Nečekat – dát připravenou</button>
+      <button class="btn btn-small btn-glass" id="loading-cancel">Zrušit</button>
+    </div>
   </div>
 
   <script type="module" src="js/main.js"></script>

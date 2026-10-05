@@ -2,7 +2,9 @@
 // human-style logic solver that can explain every step in Czech.
 // Runs both in the browser and in Node (tools/generate-levels.mjs).
 
-export const UNKNOWN = 0, STAR = 1, EMPTY = 2;
+export const UNKNOWN = 0;
+export const STAR = 1;
+export const EMPTY = 2;
 
 // Region colours, ordered so the first ones are the most distinct.
 // bg = cell colour, fg = darker tone for the verita body.
@@ -27,6 +29,18 @@ export const REGION_COLORS = [
   { name: 'Zlatá', bg: '#facc15', fg: '#a16207' },
   { name: 'Mátová', bg: '#bbf7d0', fg: '#059669' },
   { name: 'Ocelová', bg: '#94a3b8', fg: '#1e293b' },
+  { name: 'Chrpová', bg: '#818cf8', fg: '#3730a3' },
+  { name: 'Smaragdová', bg: '#34d399', fg: '#047857' },
+  { name: 'Malinová', bg: '#f472b6', fg: '#9d174d' },
+  { name: 'Azurová', bg: '#67e8f9', fg: '#0e7490' },
+  { name: 'Meruňková', bg: '#fed7aa', fg: '#c2410c' },
+  { name: 'Švestková', bg: '#c084fc', fg: '#6b21a8' },
+  { name: 'Citronová', bg: '#fef08a', fg: '#a16207' },
+  { name: 'Jahodová', bg: '#f87171', fg: '#991b1b' },
+  { name: 'Karamelová', bg: '#e8b07a', fg: '#7c2d12' },
+  { name: 'Ledová', bg: '#e0f2fe', fg: '#0369a1' },
+  { name: 'Pistáciová', bg: '#a3e635', fg: '#3f6212' },
+  { name: 'Levandulová', bg: '#ddd6fe', fg: '#5b21b6' },
 ];
 export const REGION_NAMES = REGION_COLORS.map((c) => c.name);
 
@@ -246,36 +260,79 @@ export function setStar(P, st, c) {
  * If `trace` is given, forced placements and the failing unit are recorded.
  */
 export function propagate(P, st, fills = true, trace = null) {
-  const { units, k } = P;
-  let changed = true;
-  while (changed) {
-    changed = false;
-    for (let u = 0; u < units.length; u++) {
-      const cells = units[u];
-      let s = 0, unk = 0;
+  const cnt = initCounts(P, st);
+  return propagateCore(P, st, cnt.sc, cnt.uc, { all: true }, fills, trace);
+}
+
+/** Per-unit star (sc) and unknown (uc) counters for a state. */
+export function initCounts(P, st) {
+  const { units } = P;
+  const U = units.length;
+  const sc = new Int16Array(U), uc = new Int16Array(U);
+  for (let u = 0; u < U; u++) {
+    const cells = units[u];
+    let s = 0, unk = 0;
+    for (let i = 0; i < cells.length; i++) {
+      const v = st[cells[i]];
+      if (v === STAR) s++; else if (v === UNKNOWN) unk++;
+    }
+    sc[u] = s; uc[u] = unk;
+  }
+  return { sc, uc };
+}
+
+/**
+ * Propagation on a state with up-to-date counters. Only units whose counters
+ * change are re-examined (work queue). opts: { all } re-checks every unit,
+ * { star: c } places a star at c first, { empty: c } crosses c first.
+ */
+function propagateCore(P, st, sc, uc, opts, fills, trace) {
+  const { units, k, cellUnits, nb } = P;
+  const U = units.length;
+  const queue = new Int16Array(U);
+  const inQ = new Uint8Array(U);
+  let qh = 0, qt = 0, qn = 0;
+  const push = (u) => { if (!inQ[u]) { inQ[u] = 1; queue[qt] = u; qt = (qt + 1) % U; qn++; } };
+  const touch = (c, ds, du) => {
+    for (let i = 0; i < 3; i++) { const u = cellUnits[c * 3 + i]; sc[u] += ds; uc[u] += du; push(u); }
+  };
+  const setEmpty = (c) => { if (st[c] === UNKNOWN) { st[c] = EMPTY; touch(c, 0, -1); } };
+  const placeStar = (c) => {
+    const nbc = nb[c];
+    for (let i = 0; i < nbc.length; i++) if (st[nbc[i]] === STAR) return false;
+    st[c] = STAR;
+    touch(c, 1, -1);
+    for (let i = 0; i < nbc.length; i++) setEmpty(nbc[i]);
+    return true;
+  };
+  if (opts.all) for (let u = 0; u < U; u++) push(u);
+  if (opts.star >= 0 && opts.star !== undefined) {
+    if (st[opts.star] !== UNKNOWN || !placeStar(opts.star)) {
+      if (trace) trace.fail = { unit: -1, why: 'touch' };
+      return false;
+    }
+  }
+  if (opts.empty >= 0 && opts.empty !== undefined) setEmpty(opts.empty);
+  while (qn > 0) {
+    const u = queue[qh]; qh = (qh + 1) % U; qn--; inQ[u] = 0;
+    const s = sc[u], unk = uc[u];
+    if (s > k || s + unk < k) {
+      if (trace) trace.fail = { unit: u, stars: s, unk, why: s > k ? 'too-many' : 'too-few' };
+      return false;
+    }
+    if (unk === 0) continue;
+    const cells = units[u];
+    if (s === k) {
+      for (let i = 0; i < cells.length; i++) setEmpty(cells[i]);
+    } else if (fills && s + unk === k) {
       for (let i = 0; i < cells.length; i++) {
-        const v = st[cells[i]];
-        if (v === STAR) s++; else if (v === UNKNOWN) unk++;
-      }
-      if (s > k || s + unk < k) {
-        if (trace) trace.fail = { unit: u, stars: s, unk, why: s > k ? 'too-many' : 'too-few' };
-        return false;
-      }
-      if (unk === 0) continue;
-      if (s === k) {
-        for (let i = 0; i < cells.length; i++) if (st[cells[i]] === UNKNOWN) st[cells[i]] = EMPTY;
-        changed = true;
-      } else if (fills && s + unk === k) {
-        for (let i = 0; i < cells.length; i++) {
-          const c = cells[i];
-          if (st[c] !== UNKNOWN) continue;
-          if (!setStar(P, st, c)) {
-            if (trace) trace.fail = { unit: u, stars: s, unk, why: 'touch', cell: c };
-            return false;
-          }
-          if (trace) trace.chain.push({ cell: c, unit: u });
+        const c = cells[i];
+        if (st[c] !== UNKNOWN) continue;
+        if (!placeStar(c)) {
+          if (trace) trace.fail = { unit: u, stars: s, unk, why: 'touch', cell: c };
+          return false;
         }
-        changed = true;
+        if (trace) trace.chain.push({ cell: c, unit: u });
       }
     }
   }
@@ -341,19 +398,15 @@ export function solve(P, limit = 2, start = null, nodeBudget = Infinity) {
   if (start) {
     for (let c = 0; c < P.N; c++) if (st0[c] === STAR) { st0[c] = UNKNOWN; if (!setStar(P, st0, c)) return res; }
   }
-  function rec(st) {
+  const strong = P.k > 1 || P.n <= 12;
+  // node = { st, sc, uc } with counters already propagated
+  function rec(st, sc, uc) {
     if (res.count >= limit || res.aborted) return;
     if (++res.nodes > nodeBudget) { res.aborted = true; return; }
-    if (!propagate(P, st) || !strongCheck(P, st)) return;
+    if (strong && !strongCheck(P, st)) return;
     let best = -1, bestScore = 1e9;
     for (let u = 0; u < units.length; u++) {
-      const cells = units[u];
-      let s = 0, unk = 0;
-      for (let i = 0; i < cells.length; i++) {
-        const v = st[cells[i]];
-        if (v === STAR) s++; else if (v === UNKNOWN) unk++;
-      }
-      if (s < k && unk < bestScore) { bestScore = unk; best = u; }
+      if (sc[u] < k && uc[u] < bestScore) { bestScore = uc[u]; best = u; }
     }
     if (best < 0) {
       res.count++;
@@ -366,13 +419,13 @@ export function solve(P, limit = 2, start = null, nodeBudget = Infinity) {
     const cells = units[best];
     let c = -1;
     for (let i = 0; i < cells.length; i++) if (st[cells[i]] === UNKNOWN) { c = cells[i]; break; }
-    const st2 = st.slice();
-    if (setStar(P, st2, c)) rec(st2);
+    const st2 = st.slice(), sc2 = sc.slice(), uc2 = uc.slice();
+    if (propagateCore(P, st2, sc2, uc2, { star: c }, true, null)) rec(st2, sc2, uc2);
     if (res.count >= limit || res.aborted) return;
-    st[c] = EMPTY;
-    rec(st);
+    if (propagateCore(P, st, sc, uc, { empty: c }, true, null)) rec(st, sc, uc);
   }
-  rec(st0);
+  const cnt = initCounts(P, st0);
+  if (propagateCore(P, st0, cnt.sc, cnt.uc, { all: true }, true, null)) rec(st0, cnt.sc, cnt.uc);
   return res;
 }
 
@@ -518,11 +571,13 @@ export function joinCz(list) {
 }
 
 /** Try "what if a star were here" with/without follow-up fills. */
-export function testStar(P, st, c, fills) {
+export function testStar(P, st, c, fills, base = null) {
   const st2 = st.slice();
   const trace = { chain: [], fail: null };
-  if (!setStar(P, st2, c)) return { ok: false, trace: { chain: [], fail: { why: 'touch', unit: -1 } } };
-  const ok = propagate(P, st2, fills, trace);
+  const cnt = base || initCounts(P, st);
+  // the base state must be "quiet": test only the consequences of the new star
+  const ok = propagateCore(P, st2, cnt.sc.slice(), cnt.uc.slice(), base ? { star: c } : { star: c, all: true }, fills, trace);
+  if (!ok && trace.fail && trace.fail.unit === -1) trace.chain = [];
   return { ok, trace };
 }
 
@@ -539,20 +594,26 @@ function describeFail(P, fail) {
 }
 
 function stepBlocker(P, st, fills, batch = false) {
+  // a quiet copy of the state (basic crosses applied) so each test only
+  // propagates the consequences of its own star
+  const quiet = st.slice();
+  propagate(P, quiet, false);
+  const base = initCounts(P, quiet);
   if (batch) {
     // fast path for rating: collect every provable cell in one sweep
     const cells = [];
     for (let c = 0; c < P.N; c++) {
       if (st[c] !== UNKNOWN) continue;
-      const st2 = st.slice();
-      if (!setStar(P, st2, c) || !propagate(P, st2, fills)) cells.push(c);
+      if (quiet[c] !== UNKNOWN) { cells.push(c); continue; }
+      const st2 = quiet.slice();
+      if (!propagateCore(P, st2, base.sc.slice(), base.uc.slice(), { star: c }, fills, null)) cells.push(c);
     }
     if (!cells.length) return null;
     return { tech: fills ? 'contradiction' : 'blocker', action: 'cross', cells, focus: [], units: [], text: '' };
   }
   for (let c = 0; c < P.N; c++) {
-    if (st[c] !== UNKNOWN) continue;
-    const t = testStar(P, st, c, fills);
+    if (st[c] !== UNKNOWN || quiet[c] !== UNKNOWN) continue;
+    const t = testStar(P, quiet, c, fills, base);
     if (t.ok) continue;
     let text;
     const failTxt = describeFail(P, t.trace.fail);
@@ -580,7 +641,7 @@ export function findStep(P, st, maxLevel = 5, batch = false) {
     () => stepNeighbors(P, st),
     () => (maxLevel >= 2 ? stepConfine(P, st, 1) : null),
     () => (maxLevel >= 2 ? stepBlocker(P, st, false, batch) : null),
-    () => (maxLevel >= 3 ? stepConfine(P, st, P.k === 1 ? 3 : 2) : null),
+    () => (maxLevel >= 3 ? stepConfine(P, st, P.k === 1 && P.n <= 12 ? 3 : 2) : null),
     () => (maxLevel >= 4 ? stepBlocker(P, st, true, batch) : null),
   ];
   for (const f of fns) {
@@ -766,7 +827,9 @@ function growRegions(n, k, sol, rng) {
   for (let i = 0; i < N; i++) if (reg[i] >= 0) size[reg[i]]++;
   let remaining = 0;
   for (let i = 0; i < N; i++) if (reg[i] < 0) remaining++;
-  const appetite = Float64Array.from({ length: n }, () => 0.25 + rng() * rng() * 3);
+  // a mix of tiny and large regions constrains big grids much better
+  const tinyShare = n >= 14 ? 0.35 : 0;
+  const appetite = Float64Array.from({ length: n }, () => (rng() < tinyShare ? 0.04 : 0.25 + rng() * rng() * 3));
   let guard = N * 50;
   while (remaining > 0 && guard-- > 0) {
     // pick a region weighted towards smaller sizes
@@ -818,38 +881,66 @@ function logicify(n, k, reg, sol, rng, maxLevel, maxIter, tries = 10) {
   const solSet = new Set(sol);
   const key = sol.slice().sort((a, b) => a - b).join(',');
   const CAP = k === 1 ? 64 : 256;
-  const budget = k === 1 ? 20000 : 12000;
-  const countFrac = k === 1 ? 1 : 0.5;
+  const big = n > (globalThis.__BIG || 20);
+  const budget = k === 1 ? (big ? 4000 : 20000) : 12000;
+  const countFrac = k === 1 ? (big ? 0.6 : 1) : 0.5;
   // Move cell c (never a solution cell) into a neighbouring region. If that
   // would split c's region, the piece cut off from the region's solution
   // stars moves along with it. Returns the list of [cell, oldRegion] or null.
-  const tryMove = (c) => {
-    const g = reg[c];
-    const targets = [...new Set(orthNeighbors(n, c).map((x) => reg[x]).filter((x) => x !== g))];
-    if (!targets.length) return null;
-    const t = targets[Math.floor(rng() * targets.length)];
-    const moved = [c];
-    if (!regionConnectedWithout(n, reg, g, c)) {
-      // flood from the region's solution stars; everything unreached moves with c
-      const seen = new Set();
-      const q = sol.filter((x) => reg[x] === g);
-      q.forEach((x) => seen.add(x));
-      for (let qi = 0; qi < q.length; qi++) {
-        for (const y of orthNeighbors(n, q[qi])) if (y !== c && reg[y] === g && !seen.has(y)) { seen.add(y); q.push(y); }
-      }
+  const targetsOf = (c) => [...new Set(orthNeighbors(n, c).map((x) => reg[x]).filter((x) => x !== reg[c]))];
+  // Move `cells` (all of region g, none a solution cell) into region t. Pieces
+  // of g cut off from g's solution stars move along. Returns undo list or null.
+  const moveCells = (cells, g, t) => {
+    const moving = new Set(cells);
+    const stars = sol.filter((x) => reg[x] === g);
+    const seen = new Set(stars);
+    const q = stars.slice();
+    for (let qi = 0; qi < q.length; qi++) {
+      for (const y of orthNeighbors(n, q[qi])) if (!moving.has(y) && reg[y] === g && !seen.has(y)) { seen.add(y); q.push(y); }
+    }
+    if (stars.length > 1) {
       // the region's own stars must stay connected to each other
-      const stars = sol.filter((x) => reg[x] === g);
       const s0 = new Set([stars[0]]), q0 = [stars[0]];
       for (let qi = 0; qi < q0.length; qi++) {
-        for (const y of orthNeighbors(n, q0[qi])) if (y !== c && reg[y] === g && !s0.has(y)) { s0.add(y); q0.push(y); }
+        for (const y of orthNeighbors(n, q0[qi])) if (!moving.has(y) && reg[y] === g && !s0.has(y)) { s0.add(y); q0.push(y); }
       }
       if (stars.some((x) => !s0.has(x))) return null;
-      for (let i = 0; i < reg.length; i++) if (reg[i] === g && i !== c && !seen.has(i)) moved.push(i);
-      if (moved.length > Math.max(4, n)) return null;
     }
-    const undo = moved.map((x) => [x, reg[x]]);
-    for (const x of moved) reg[x] = t;
+    for (let i = 0; i < reg.length; i++) if (reg[i] === g && !moving.has(i) && !seen.has(i)) moving.add(i);
+    if (moving.size > Math.max(6, n)) return null;
+    const undo = [...moving].map((x) => [x, reg[x]]);
+    for (const x of moving) reg[x] = t;
     return undo;
+  };
+  const tryMove = (c, forced = -1) => {
+    const g = reg[c];
+    const targets = targetsOf(c);
+    if (!targets.length) return tryCorridor(c);
+    const t = forced >= 0 ? forced : targets[Math.floor(rng() * targets.length)];
+    return moveCells([c], g, t);
+  };
+  // c lies inside its region: carve the shortest path from c to the region's
+  // edge and hand it (with c) to the neighbouring region there
+  const tryCorridor = (c) => {
+    const g = reg[c];
+    const prev = new Map([[c, -1]]);
+    const q = [c];
+    let end = -1;
+    for (let qi = 0; qi < q.length && end < 0; qi++) {
+      const x = q[qi];
+      for (const y of shuffle(orthNeighbors(n, x), rng)) {
+        if (prev.has(y)) continue;
+        if (reg[y] !== g) { end = x; break; }
+        if (solSet.has(y)) continue;
+        prev.set(y, x);
+        q.push(y);
+      }
+    }
+    if (end < 0) return null;
+    const path = [];
+    for (let x = end; x !== -1; x = prev.get(x)) path.push(x);
+    const t = targetsOf(end)[0];
+    return moveCells(path, g, t);
   };
   const revert = (undo) => { for (const [x, g] of undo) reg[x] = g; };
   // Logic first (cheap, sound); then count the remaining solutions starting
@@ -869,7 +960,7 @@ function logicify(n, k, reg, sol, rng, maxLevel, maxIter, tries = 10) {
   let cur = evaluate();
   if (cur.solved) return { reg, rating: cur.lr };
   let bestScore = cur.score, bestIter = 0;
-  const stall = k === 1 ? 40 : 25;
+  const stall = k === 1 ? 40 + n : 25;
   for (let iter = 0; iter < maxIter; iter++) {
     let ordered = [];
     let sols = cur.counted ? cur.counted.solutions : [];
@@ -887,15 +978,24 @@ function logicify(n, k, reg, sol, rng, maxLevel, maxIter, tries = 10) {
     }
     const pool = [];
     const st = cur.lr ? cur.lr.state : null;
+    // near the end few cells are undecided: then any border cell may move
+    const loose = !st || knownCount(st) > n * n * 0.9;
     for (let c = 0; c < n * n; c++) {
-      if (solSet.has(c) || (st && st[c] !== UNKNOWN)) continue;
+      if (solSet.has(c) || (st && !loose && st[c] !== UNKNOWN)) continue;
       if (orthNeighbors(n, c).some((x) => reg[x] !== reg[c])) pool.push(c);
     }
-    ordered.push(...shuffle(pool, rng));
+    // endgame (few solutions left): try every alternative-star cell with every target
+    const endgame = cur.counted && !cur.counted.aborted && cur.counted.count <= 32;
+    const moves = [];
+    if (endgame) for (const c of ordered) { const ts = targetsOf(c); if (ts.length) for (const t of ts) moves.push([c, t]); else moves.push([c, -1]); }
+    shuffle(moves, rng);
+    const limit = endgame ? Math.max(tries, 36) : tries;
+    for (const c of shuffle(pool, rng)) moves.push([c, -1]);
+    if (!endgame) moves.unshift(...ordered.map((c) => [c, -1]));
     let best = null, tested = 0;
-    for (const c of ordered) {
-      if (tested >= tries) break;
-      const undo = tryMove(c);
+    for (const [c, forced] of moves) {
+      if (tested >= limit) break;
+      const undo = tryMove(c, forced);
       if (!undo) continue;
       tested++;
       const after = undo.map(([x]) => [x, reg[x]]);
@@ -914,56 +1014,74 @@ function logicify(n, k, reg, sol, rng, maxLevel, maxIter, tries = 10) {
   return null;
 }
 
+/** How demanding a logic rating is (hard steps count much more). */
+export function hardness(r) {
+  const lc = r.levelCounts;
+  return lc[4] * 8 + lc[3] * 4 + lc[2] * 2 + lc[1] * 0.2;
+}
+
+/**
+ * Make a solvable puzzle harder: random single-cell region changes that keep
+ * it logic-solvable (hence unique) are kept when they raise hardness().
+ */
+function harden(n, k, reg, sol, rng, maxLevel, rating, iters) {
+  const solSet = new Set(sol);
+  let best = hardness(rating);
+  for (let it = 0; it < iters; it++) {
+    const c = Math.floor(rng() * n * n);
+    if (solSet.has(c)) continue;
+    const g = reg[c];
+    const targets = [...new Set(orthNeighbors(n, c).map((x) => reg[x]).filter((x) => x !== g))];
+    if (!targets.length || !regionConnectedWithout(n, reg, g, c)) continue;
+    reg[c] = targets[Math.floor(rng() * targets.length)];
+    const r = logicSolve(makePuzzle(n, k, reg, sol), maxLevel);
+    const h = r.solved ? hardness(r) : -1;
+    if (h >= best) { best = h; rating = r; } else reg[c] = g;
+  }
+  return rating;
+}
+
 /**
  * Generate a unique, logic-solvable puzzle. Returns { P, rating } or null.
- * accept(rating) decides whether the logic difficulty suits the level.
+ * accept(rating) decides whether the logic difficulty suits the level;
+ * harden > 0 spends that many extra steps making the puzzle harder.
  */
-export function generatePuzzle(n, k, seed, { maxLevel = 4, accept = () => true, maxTries = 12, maxIter = 300 } = {}) {
+export function generatePuzzle(n, k, seed, { maxLevel = 4, accept = () => true, maxTries = 12, maxIter = 300, harden: hardenIters = 0 } = {}) {
   const rng = mulberry32(seed);
   for (let t = 0; t < maxTries; t++) {
     const sol = randomSolution(n, k, rng);
     if (!sol) continue;
     const reg = growRegions(n, k, sol, rng);
     if (!reg) continue;
-    const out = logicify(n, k, reg, sol, rng, maxLevel, maxIter);
+    const out = logicify(n, k, reg, sol, rng, maxLevel, maxIter + 10 * n);
     if (!out) continue;
-    if (!accept(out.rating)) continue;
-    return { P: makePuzzle(n, k, out.reg, sol), rating: out.rating };
+    let rating = out.rating;
+    if (hardenIters > 0) rating = harden(n, k, out.reg, sol, rng, maxLevel, rating, hardenIters);
+    if (!accept(rating)) continue;
+    return { P: makePuzzle(n, k, out.reg, sol), rating };
   }
   return null;
 }
 
 // ---------------------------------------------------------------- levels
 
-/** Grid size, stars per unit and target logic difficulty for level 1..100. */
+/** Grid size and target logic difficulty for level (difficulty) 1..100. One verita per row, column and colour. */
+const SIZE_STEPS = [
+  [5, 5], [10, 6], [16, 7], [22, 8], [28, 9], [34, 10], [40, 11], [46, 12], [52, 13], [58, 14],
+  [64, 15], [69, 16], [74, 17], [78, 18], [82, 19], [85, 20], [88, 21], [90, 22], [92, 23],
+  [94, 24], [96, 25], [97, 26], [98, 27], [99, 28], [100, 30],
+];
 export function levelParams(level) {
   const L = Math.max(1, Math.min(100, level | 0));
-  let n, k;
-  if (L <= 6) { n = 5; k = 1; }
-  else if (L <= 14) { n = 6; k = 1; }
-  else if (L <= 22) { n = 7; k = 1; }
-  else if (L <= 31) { n = 8; k = 1; }
-  else if (L <= 40) { n = 9; k = 1; }
-  else if (L <= 50) { n = 10; k = 1; }
-  else if (L <= 60) { n = 11; k = 1; }
-  else if (L <= 68) { n = 10; k = 2; }
-  else if (L <= 76) { n = 11; k = 2; }
-  else if (L <= 84) { n = 12; k = 2; }
-  else if (L <= 92) { n = 12; k = 3; }
-  else { n = 13; k = 3; }
-  // target maximum technique level the puzzle may need
-  let maxTech;
-  if (L <= 8) maxTech = 1;
-  else if (L <= 25) maxTech = 2;
-  else if (L <= 45) maxTech = 3;
-  else maxTech = 4;
-  // minimum technique level, so later levels are not trivial
-  let minTech = 0;
-  if (L >= 30) minTech = 2;
-  if (L >= 52) minTech = 3;
-  if (L >= 85) minTech = 4;
+  const k = 1;
+  const n = SIZE_STEPS.find(([upTo]) => L <= upTo)[1];
+  // hardest technique the puzzle may need, and the hardest it must need
+  const maxTech = L <= 8 ? 1 : L <= 20 ? 2 : L <= 35 ? 3 : 4;
+  const minTech = L >= 70 ? 4 : L >= 45 ? 3 : L >= 25 ? 2 : 0;
+  // extra effort spent making the grid harder (pre-generated levels)
+  const harden = L >= 90 ? 500 : L >= 70 ? 250 : L >= 40 ? 120 : 0;
   const tier = L <= 15 ? 'Lehká' : L <= 35 ? 'Střední' : L <= 60 ? 'Těžká' : L <= 85 ? 'Expert' : L < 100 ? 'Mistr' : 'ULTRA';
-  return { level: L, n, k, maxTech, minTech, tier, stars: n * k };
+  return { level: L, n, k, maxTech, minTech, harden, tier, stars: n * k };
 }
 
 export function acceptFor(params) {
