@@ -29,6 +29,18 @@ export const REGION_COLORS = [
   { name: 'Zlatá', bg: '#facc15', fg: '#a16207' },
   { name: 'Mátová', bg: '#bbf7d0', fg: '#059669' },
   { name: 'Ocelová', bg: '#94a3b8', fg: '#1e293b' },
+  { name: 'Chrpová', bg: '#818cf8', fg: '#3730a3' },
+  { name: 'Smaragdová', bg: '#34d399', fg: '#047857' },
+  { name: 'Malinová', bg: '#f472b6', fg: '#9d174d' },
+  { name: 'Azurová', bg: '#67e8f9', fg: '#0e7490' },
+  { name: 'Meruňková', bg: '#fed7aa', fg: '#c2410c' },
+  { name: 'Švestková', bg: '#c084fc', fg: '#6b21a8' },
+  { name: 'Citronová', bg: '#fef08a', fg: '#a16207' },
+  { name: 'Jahodová', bg: '#f87171', fg: '#991b1b' },
+  { name: 'Karamelová', bg: '#e8b07a', fg: '#7c2d12' },
+  { name: 'Ledová', bg: '#e0f2fe', fg: '#0369a1' },
+  { name: 'Pistáciová', bg: '#a3e635', fg: '#3f6212' },
+  { name: 'Levandulová', bg: '#ddd6fe', fg: '#5b21b6' },
 ];
 export const REGION_NAMES = REGION_COLORS.map((c) => c.name);
 

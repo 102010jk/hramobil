@@ -21,7 +21,7 @@ if (!isMainThread) {
     const accept = (r) => r.maxLevel >= Math.min(p.minTech, p.maxTech);
     const t0 = Date.now();
     // top levels: several candidates, keep the one needing the most hard steps
-    const want = level === 100 ? 2 : 1;
+    const want = 1;
     let out = null, found = 0;
     for (let attempt = 0; attempt < 40 && found < want; attempt++) {
       const seed = level * 1000003 + variant * 7919 + attempt * 104729;
@@ -40,7 +40,7 @@ if (!isMainThread) {
     return acc;
   }, []));
   const from = +(args.from || 1), to = +(args.to || 100);
-  const variantsFor = (level) => +(args.variants || (level <= 60 ? 4 : level <= 84 ? 3 : 2));
+  const variantsFor = (level) => +(args.variants || (level <= 60 ? 4 : level <= 84 ? 3 : 1));
   const nWorkers = +(args.workers || Math.max(1, cpus().length));
   const cache = existsSync(cachePath) ? JSON.parse(readFileSync(cachePath, 'utf8')) : {};
   if (!existsSync(cachePath) && existsSync(outPath) && !args.fresh) {
