@@ -1,0 +1,84 @@
+name: Build Android APK
+
+on:
+  push:
+  workflow_dispatch:
+
+concurrency:
+  group: android-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22   # Capacitor 8 CLI vyžaduje Node >= 22
+          cache: npm
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21   # Capacitor 8 / AGP 8.13 / Gradle 8.14
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Add Android platform
+        run: npx cap add android
+
+      - name: Generate icons and splash screens
+        continue-on-error: true
+        run: >
+          npx capacitor-assets generate --android
+          --iconBackgroundColor '#0b0d17' --iconBackgroundColorDark '#0b0d17'
+          --splashBackgroundColor '#0b0d17' --splashBackgroundColorDark '#0b0d17'
+
+      - name: Lock portrait orientation and set versionCode
+        continue-on-error: true
+        run: |
+          sed -i 's|android:launchMode="singleTask"|android:launchMode="singleTask"\n            android:screenOrientation="portrait"|' android/app/src/main/AndroidManifest.xml
+          sed -i "s/versionCode 1\$/versionCode ${{ github.run_number }}/" android/app/build.gradle
+          grep -n "screenOrientation" android/app/src/main/AndroidManifest.xml || true
+          grep -n "versionCode" android/app/build.gradle || true
+
+      - name: Sync Capacitor
+        run: npx cap sync android
+
+      - name: Build debug APK
+        working-directory: android
+        run: ./gradlew assembleDebug --no-daemon
+
+      - name: Rename APK
+        run: cp android/app/build/outputs/apk/debug/app-debug.apk Veritdoku.apk
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Veritdoku-apk
+          path: Veritdoku.apk
+          if-no-files-found: error
+
+      - name: Remove previous apk-latest release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release delete apk-latest --yes --cleanup-tag --repo "${{ github.repository }}" || true
+
+      - name: Publish release apk-latest
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: apk-latest
+          target_commitish: ${{ github.sha }}
+          name: Veritdoku – nejnovější APK
+          body: |
+            Nejnovější sestavení Androidu (debug APK) z commitu ${{ github.sha }} (větev `${{ github.ref_name }}`).
+            Stáhni `Veritdoku.apk`, otevři ho v telefonu a povol instalaci z neznámých zdrojů.
+          prerelease: true
+          make_latest: true
+          files: Veritdoku.apk

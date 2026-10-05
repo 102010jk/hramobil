@@ -1,0 +1,9 @@
+{
+  "appId": "cz.veritdoku.app",
+  "appName": "Veritdoku",
+  "webDir": "www",
+  "backgroundColor": "#0b0d17",
+  "android": {
+    "backgroundColor": "#0b0d17"
+  }
+}

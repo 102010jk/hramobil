@@ -1,0 +1,160 @@
+<!doctype html>
+<html lang="cs">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+  <meta name="theme-color" content="#0b0d17">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="description" content="Veritdoku – logická hra: rozmísti verity tak, aby v každém řádku, sloupci a barevné oblasti byl správný počet a žádné se nedotýkaly.">
+  <title>Veritdoku</title>
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <!-- UI icons; verity type symbols are injected by js/verities.js -->
+  <svg width="0" height="0" style="position:absolute" aria-hidden="true">
+    <symbol id="i-heart" viewBox="0 0 24 24"><path d="M12 21s-7.5-4.6-9.6-9.3C.9 8.2 3 4.5 6.6 4.5c2 0 3.6 1.1 4.4 2.6.8-1.5 2.4-2.6 4.4-2.6 3.6 0 5.7 3.7 4.2 7.2C19.5 16.4 12 21 12 21z"/></symbol>
+  </svg>
+
+  <div id="app">
+    <!-- ============ HOME ============ -->
+    <section class="screen active" id="screen-home">
+      <div class="home-hero">
+        <div class="logo-row">
+          <svg class="logo-verita" id="logo-verita" viewBox="-4 -4 108 108"></svg>
+        </div>
+        <h1 class="title">Veritdoku</h1>
+        <p class="subtitle">Logická hra pro chytré hlavy. 100 levelů, od pohodových po ultra těžké.</p>
+      </div>
+      <div class="home-actions">
+        <button class="btn btn-primary btn-xl" id="btn-continue" hidden>
+          <span class="btn-main">Pokračovat</span><span class="btn-sub" id="continue-sub"></span>
+        </button>
+        <button class="btn btn-primary btn-xl" id="btn-play">
+          <span class="btn-main">Hrát</span><span class="btn-sub" id="play-sub">Level 1</span>
+        </button>
+        <button class="btn btn-glass" id="btn-levels">Vybrat level 1–100</button>
+        <button class="btn btn-glass btn-dex" id="btn-dex"><span class="btn-main">Veritárium</span><span class="btn-sub" id="dex-sub"></span></button>
+        <div class="btn-row">
+          <button class="btn btn-glass" id="btn-howto">Jak hrát</button>
+          <button class="btn btn-glass" id="btn-settings">Nastavení</button>
+        </div>
+      </div>
+      <div class="home-stats" id="home-stats"></div>
+    </section>
+
+    <!-- ============ LEVELS ============ -->
+    <section class="screen" id="screen-levels">
+      <header class="topbar">
+        <button class="icon-btn" data-back aria-label="Zpět">‹</button>
+        <h2>Vyber level</h2>
+        <span class="spacer"></span>
+      </header>
+      <div class="level-picker">
+        <div class="picker-card">
+          <div class="picker-head">
+            <div>
+              <div class="picker-level">Level <b id="pick-num">1</b></div>
+              <div class="picker-info" id="pick-info"></div>
+            </div>
+            <span class="tier-badge" id="pick-tier"></span>
+          </div>
+          <input type="range" min="1" max="100" value="1" id="pick-range" aria-label="Obtížnost levelu">
+          <div class="picker-scale"><span>1 · lehké</span><span>50</span><span>100 · ULTRA</span></div>
+          <button class="btn btn-primary" id="pick-play">Hrát level 1</button>
+        </div>
+        <div class="level-grid" id="level-grid"></div>
+      </div>
+    </section>
+
+    <!-- ============ GAME ============ -->
+    <section class="screen" id="screen-game">
+      <header class="topbar game-top">
+        <button class="icon-btn" id="game-back" aria-label="Zpět">‹</button>
+        <div class="game-title">
+          <div class="gt-level" id="g-level">Level 1</div>
+          <div class="gt-meta" id="g-meta"></div>
+        </div>
+        <div class="lives" id="g-lives"></div>
+      </header>
+      <div class="status-row">
+        <div class="chip" id="g-timer">0:00</div>
+        <div class="chip" id="g-progress">0 / 0</div>
+        <div class="chip mode-chip" id="g-mode-chip">Režim: hra</div>
+      </div>
+      <div class="board-wrap" id="board-wrap">
+        <div class="board-zoom" id="board-zoom">
+          <div class="board" id="board"></div>
+          <canvas class="ink" id="ink"></canvas>
+        </div>
+      </div>
+      <div class="hint-panel" id="hint-panel" hidden>
+        <div class="hint-head">
+          <span class="hint-title" id="hint-title">Nápověda</span>
+          <button class="icon-btn small" id="hint-close" aria-label="Zavřít">✕</button>
+        </div>
+        <p class="hint-text" id="hint-text"></p>
+        <div class="hint-actions">
+          <button class="btn btn-small btn-glass" id="hint-apply">Provést krok</button>
+          <button class="btn btn-small btn-glass" id="hint-next" hidden>Další krok</button>
+        </div>
+      </div>
+      <div class="ink-tools" id="ink-tools" hidden>
+        <div class="swatches" id="swatches"></div>
+        <button class="tool-chip" id="ink-width" aria-label="Tloušťka">●</button>
+        <button class="tool-chip" id="ink-eraser" aria-label="Guma">Guma</button>
+        <button class="tool-chip" id="ink-undo" aria-label="Zpět tah">↶</button>
+        <button class="tool-chip" id="ink-clear">Smazat</button>
+      </div>
+      <nav class="toolbar">
+        <button class="tool" id="t-undo"><span class="ti">↶</span><span>Zpět</span></button>
+        <button class="tool" id="t-mode"><span class="ti">✎</span><span>Fixy</span></button>
+        <button class="tool" id="t-hint"><span class="ti">💡</span><span>Nápověda</span></button>
+        <button class="tool" id="t-solver"><span class="ti">⚙</span><span>Řešič</span></button>
+        <button class="tool" id="t-menu"><span class="ti">⋯</span><span>Více</span></button>
+      </nav>
+      <div class="gesture-tip" id="gesture-tip">Ťukni = křížek · dvojklik = verita · táhni = víc křížků</div>
+    </section>
+
+    <!-- ============ VERITÁRIUM (collection) ============ -->
+    <section class="screen" id="screen-dex">
+      <header class="topbar">
+        <button class="icon-btn" data-back aria-label="Zpět">‹</button>
+        <h2>Veritárium</h2>
+        <span class="spacer"></span>
+      </header>
+      <p class="dex-intro" id="dex-intro"></p>
+      <div class="dex-grid" id="dex-grid"></div>
+    </section>
+
+    <!-- ============ REPORT (after losing) ============ -->
+    <section class="screen" id="screen-report">
+      <header class="topbar">
+        <span class="spacer"></span>
+        <h2>Rozbor hry</h2>
+        <span class="spacer"></span>
+      </header>
+      <div class="report" id="report"></div>
+    </section>
+  </div>
+
+  <!-- ============ MODALS ============ -->
+  <div class="modal" id="modal" hidden>
+    <div class="modal-card" id="modal-card"></div>
+  </div>
+  <div class="toast" id="toast"></div>
+  <div class="loading" id="loading" hidden>
+    <svg class="loading-verita" id="loading-verita" viewBox="-4 -4 108 108"></svg>
+    <div id="loading-text">Generuji mřížku…</div>
+  </div>
+
+  <script type="module" src="js/main.js"></script>
+</body>
+</html>

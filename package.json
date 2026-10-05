@@ -1,0 +1,22 @@
+{
+  "name": "veritdoku",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Veritdoku – logická hra (Queens/Meowdoku styl)",
+  "scripts": {
+    "serve": "npx --yes http-server www -p 8080 -c-1",
+    "generate-levels": "node tools/generate-levels.mjs",
+    "cap:sync": "cap sync android",
+    "test": "node tools/selftest.mjs"
+  },
+  "devDependencies": {
+    "@capacitor/android": "^8.5.2",
+    "@capacitor/assets": "^3.0.5",
+    "@capacitor/cli": "^8.5.2",
+    "@capacitor/core": "^8.5.2"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}
