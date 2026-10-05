@@ -33,7 +33,7 @@ const js = ORDER.map((f) => wrapModule(f, www('js/' + f))).join('\n');
 const workerSrc = wrapModule('engine.js', www('js/engine.js')) + wrapModule('gen-worker.js', www('js/gen-worker.js'));
 const safe = (str) => str.replace(/<\/(script)/gi, '<\\/$1');
 const css = www('css/style.css');
-const levels = www('levels.json');
+const levels = process.env.VERITDOKU_LEVELS ? readFileSync(process.env.VERITDOKU_LEVELS, 'utf8') : www('levels.json');
 const html = www('index.html');
 
 const head = html.slice(html.indexOf('<head>') + 6, html.indexOf('</head>'));
