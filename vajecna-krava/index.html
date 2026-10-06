@@ -3,11 +3,11 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
-  <meta name="theme-color" content="#6ec6ff">
+  <meta name="theme-color" content="#8fd3ff">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-  <meta name="description" content="Vaječná kráva – chytej vejce, která snáší kráva Bětka, a vyhýbej se kravincům.">
+  <meta name="description" content="Vaječná kráva – 3D střílečka z vlastního pohledu. Ufoni chtějí unést krávu Bětku, ty ji s Kájou a Míšou bráníš vajíčkometem.">
   <title>Vaječná kráva</title>
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
@@ -19,46 +19,82 @@
 </head>
 <body>
   <div id="app">
-    <canvas id="cv" aria-label="Herní plocha"></canvas>
+    <canvas id="cv" aria-label="Herní scéna"></canvas>
+    <div id="vignette"></div>
 
     <!-- ============ HUD ============ -->
     <div id="hud" hidden>
       <div class="hud-top">
-        <div class="hearts" id="hud-hearts" aria-label="Životy"></div>
-        <div class="score-box">
+        <div class="hud-left">
           <div class="score" id="hud-score">0</div>
-          <div class="chips">
-            <span class="chip" id="hud-level">Úroveň 1</span>
-            <span class="chip chip-combo" id="hud-combo" hidden>×2</span>
-          </div>
+          <div class="chip" id="hud-wave">Vlna 1</div>
         </div>
-        <button class="icon-btn" id="btn-pause" aria-label="Pauza">
-          <svg viewBox="0 0 24 24"><rect x="6" y="5" width="4" height="14" rx="1.5"/><rect x="14" y="5" width="4" height="14" rx="1.5"/></svg>
-        </button>
+        <div class="hud-center">
+          <div class="cowbar">
+            <span class="cowbar-label">🐮 Bětka</span>
+            <div class="bar"><i id="hud-cow"></i></div>
+          </div>
+          <div class="cowbar ufobar" id="hud-ufo" hidden>
+            <span class="cowbar-label">🛸 Únos</span>
+            <div class="bar"><i id="hud-ufo-bar"></i></div>
+          </div>
+          <div class="enemies" id="hud-enemies"></div>
+        </div>
+        <div class="hud-right">
+          <button class="icon-btn" id="btn-pause" aria-label="Pauza">
+            <svg viewBox="0 0 24 24"><rect x="6" y="5" width="4" height="14" rx="1.5"/><rect x="14" y="5" width="4" height="14" rx="1.5"/></svg>
+          </button>
+        </div>
       </div>
-      <div class="powers" id="hud-powers"></div>
-      <div class="hint" id="hud-hint">Táhni prstem kdekoli doleva a doprava</div>
+      <div class="squad" id="hud-squad"></div>
+
+      <div class="crosshair" id="crosshair"><i></i><i></i><i></i><i></i></div>
+      <div class="hitmarker" id="hitmarker"></div>
+
+      <div class="hud-bottom">
+        <div class="hp">
+          <span class="hp-ico">❤</span>
+          <div class="bar bar-hp"><i id="hud-hp"></i></div>
+          <b id="hud-hp-num">100</b>
+        </div>
+        <div class="ammo">
+          <div class="weapon-name" id="hud-weapon">Vajíčkomet</div>
+          <div class="ammo-num"><b id="hud-mag">8</b><span id="hud-reserve">/ ∞</span></div>
+          <div class="reloading" id="hud-reload" hidden>Nabíjím…</div>
+        </div>
+      </div>
+      <div id="toasts"></div>
+    </div>
+
+    <!-- ============ dotykové ovládání ============ -->
+    <div id="touch" hidden>
+      <div class="stick" id="stick"><div class="knob" id="knob"></div></div>
+      <button class="tbtn tbtn-fire" id="t-fire" aria-label="Střílet">
+        <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="7" fill="none" stroke-width="2.5"/><circle cx="12" cy="12" r="2"/></svg>
+      </button>
+      <button class="tbtn tbtn-jump" id="t-jump" aria-label="Skok">⤒</button>
+      <button class="tbtn tbtn-reload" id="t-reload" aria-label="Nabít">⟳</button>
+      <button class="tbtn tbtn-swap" id="t-swap" aria-label="Změnit zbraň">⇄</button>
     </div>
 
     <div id="banner" aria-live="polite"></div>
 
     <!-- ============ MENU ============ -->
     <section class="overlay overlay-menu" id="scr-menu">
-      <header class="menu-head">
+      <div class="menu-card">
         <h1 class="title"><span>Vaječná</span><span>kráva</span></h1>
-        <p class="subtitle">Bětka snáší vejce. Ty je chytáš. Kravince ne.</p>
-      </header>
-      <div class="menu-spacer" id="menu-cow-zone" title="Ťukni na krávu"></div>
-      <div class="menu-actions">
+        <div class="tag">Ufoni útočí!</div>
+        <p class="subtitle">Ufoni chtějí unést krávu Bětku. Ubraň ji s Kájou a Míšou vajíčkometem, mléčným kulometem a zlatou brokovnicí.</p>
         <button class="btn btn-primary btn-xl" id="btn-play">Hrát</button>
         <div class="row">
-          <button class="btn" id="btn-shop">Obchod <span class="coin-pill"><i class="coin"></i><b id="menu-coins">0</b></span></button>
           <button class="btn" id="btn-help">Jak hrát</button>
+          <button class="btn" id="btn-settings">Nastavení</button>
         </div>
         <div class="menu-foot">
           <span>Rekord: <b id="menu-best">0</b></span>
-          <button class="link-btn" id="btn-sound" aria-pressed="true">Zvuk: zap.</button>
+          <span>Nejdál: <b id="menu-wave">vlna 0</b></span>
         </div>
+        <p class="rotate-hint" id="rotate-hint">📱↻ Nejlíp se hraje na šířku</p>
       </div>
     </section>
 
@@ -68,8 +104,20 @@
         <h2>Pauza</h2>
         <p class="muted">Bětka si zatím přežvykuje.</p>
         <button class="btn btn-primary btn-xl" id="btn-resume">Pokračovat</button>
-        <button class="btn" id="btn-pause-sound">Zvuk: zap.</button>
+        <button class="btn" id="btn-pause-settings">Nastavení</button>
         <button class="btn" id="btn-quit">Ukončit hru</button>
+      </div>
+    </section>
+
+    <!-- ============ NASTAVENÍ ============ -->
+    <section class="overlay overlay-dim" id="scr-settings" hidden>
+      <div class="card">
+        <h2>Nastavení</h2>
+        <label class="setting"><span>Zvuk</span><input type="checkbox" id="set-sound"></label>
+        <label class="setting"><span>Stíny (hezčí, ale pomalejší)</span><input type="checkbox" id="set-shadows"></label>
+        <label class="setting setting-col"><span>Citlivost míření: <b id="set-sens-val">1.0</b></span><input type="range" id="set-sens" min="0.3" max="2.5" step="0.1"></label>
+        <label class="setting"><span>Pomoc s mířením (dotyk)</span><input type="checkbox" id="set-assist"></label>
+        <button class="btn btn-primary" id="btn-settings-close">Hotovo</button>
       </div>
     </section>
 
@@ -77,35 +125,19 @@
     <section class="overlay overlay-dim" id="scr-over" hidden>
       <div class="card">
         <h2 id="over-title">Konec hry!</h2>
+        <p class="muted" id="over-reason"></p>
         <div class="big-score" id="over-score">0</div>
         <div class="new-best" id="over-best-badge" hidden>Nový rekord!</div>
         <div class="stats">
-          <div><span>Vejce</span><b id="over-eggs">0</b></div>
-          <div><span>Zlatá vejce</span><b id="over-golden">0</b></div>
-          <div><span>Nejlepší kombo</span><b id="over-combo">0</b></div>
-          <div><span>Úroveň</span><b id="over-level">1</b></div>
+          <div><span>Vlna</span><b id="over-wave">1</b></div>
+          <div><span>Sestřelení ufoni</span><b id="over-kills">0</b></div>
+          <div><span>Přesnost</span><b id="over-acc">0 %</b></div>
+          <div><span>Snědená vejce</span><b id="over-eggs">0</b></div>
         </div>
-        <div class="earned"><i class="coin"></i> +<b id="over-coins">0</b> vajíček do obchodu</div>
-        <button class="btn btn-primary btn-xl" id="btn-again">Hrát znovu</button>
         <div class="row">
-          <button class="btn" id="btn-over-shop">Obchod</button>
-          <button class="btn" id="btn-menu">Menu</button>
+          <button class="btn btn-primary btn-xl" id="btn-again">Hrát znovu</button>
+          <button class="btn btn-xl" id="btn-menu" style="flex:0 0 34%">Menu</button>
         </div>
-      </div>
-    </section>
-
-    <!-- ============ SHOP ============ -->
-    <section class="overlay overlay-dim" id="scr-shop" hidden>
-      <div class="card card-wide">
-        <div class="shop-head">
-          <h2>Obchod</h2>
-          <span class="coin-pill coin-pill-lg"><i class="coin"></i><b id="shop-coins">0</b></span>
-        </div>
-        <h3>Vylepšení</h3>
-        <div class="shop-list" id="shop-upgrades"></div>
-        <h3>Krávy</h3>
-        <div class="skin-grid" id="shop-skins"></div>
-        <button class="btn btn-primary" id="btn-shop-close">Hotovo</button>
       </div>
     </section>
 
@@ -114,17 +146,18 @@
       <div class="card card-wide">
         <h2>Jak hrát</h2>
         <ul class="help">
-          <li><span class="hi hi-egg"></span><div><b>Chytej vejce</b> do košíku. Táhni prstem kdekoli po obrazovce (nebo šipky / myš).</div></li>
-          <li><span class="hi hi-gold"></span><div><b>Zlaté vejce</b> je za 5× víc bodů i vajíček do obchodu.</div></li>
-          <li><span class="hi hi-poop"></span><div><b>Kravinec</b> do košíku nechytej – stojí život. Nech ho spadnout.</div></li>
-          <li><span class="hi hi-heart"></span><div>Každé <b>rozbité vejce</b> stojí život. Máš 3 srdíčka.</div></li>
-          <li><span class="hi hi-combo">×3</span><div><b>Kombo</b>: chytáš-li bez chyby, body se násobí až ×5.</div></li>
-          <li><span class="hi hi-power"></span><div><b>Bonusy</b>: 🥛 zpomalení, 🧲 magnet na vejce, 🧺 obří košík, ❤️ život navíc.</div></li>
+          <li><span class="hi">🐮</span><div><b>Chraň Bětku.</b> Ufoni k ní běží a chtějí ji odnést. Když jí dojde zdraví, nebo ji UFO unese, prohráváš.</div></li>
+          <li><span class="hi">👩‍🌾</span><div><b>Kája a Míša</b> v kaskách střílejí s tebou. Když je ufoni složí, za chvíli vstanou. Když k nim dojdeš, vstanou dřív.</div></li>
+          <li><span class="hi">🥚</span><div>Bětka snáší vejce: <b>bílé</b> ti doplní zdraví, <b>zlaté</b> náboje do mléčného kulometu a zlaté brokovnice.</div></li>
+          <li><span class="hi">🛸</span><div>Každou 5. vlnu přiletí <b>UFO</b> a začne Bětku vysávat paprskem. Sestřel ho, než ji unese!</div></li>
+          <li><span class="hi">📱</span><div><b>Mobil:</b> levý palec chodí (joystick), pravým táhneš a míříš. Tlačítko s terčem střílí (můžeš jím i mířit), dál skok, nabití a změna zbraně.</div></li>
+          <li><span class="hi">⌨️</span><div><b>Počítač:</b> WASD chůze, myš míření, klik střelba, Shift sprint, mezerník skok, R nabít, 1–3 / kolečko zbraně, Esc pauza.</div></li>
         </ul>
-        <p class="muted">Každá úroveň je rychlejší. Na páté úrovni přijde Bára, na desáté Líza. A občas začne <b>vaječná smršť</b>!</p>
         <button class="btn btn-primary btn-xl" id="btn-help-close">Rozumím</button>
       </div>
     </section>
+
+    <div class="loading" id="loading">Načítám farmu…</div>
   </div>
 
   <script type="module" src="js/game.js"></script>

@@ -59,10 +59,10 @@ jobs:
           --iconBackgroundColor '#6ec6ff' --iconBackgroundColorDark '#6ec6ff'
           --splashBackgroundColor '#6ec6ff' --splashBackgroundColorDark '#6ec6ff'
 
-      - name: Lock portrait orientation and set versionCode
+      - name: Lock landscape orientation and set versionCode
         continue-on-error: true
         run: |
-          sed -i 's|android:launchMode="singleTask"|android:launchMode="singleTask"\n            android:screenOrientation="portrait"|' android/app/src/main/AndroidManifest.xml
+          sed -i 's|android:launchMode="singleTask"|android:launchMode="singleTask"\n            android:screenOrientation="sensorLandscape"|' android/app/src/main/AndroidManifest.xml
           sed -i "s/versionCode 1\$/versionCode ${{ github.run_number }}/" android/app/build.gradle
 
       - name: Sync Capacitor

@@ -1,13 +1,15 @@
 /* Vaječná kráva – service worker pro offline hraní (stale-while-revalidate). */
-const CACHE = 'vajecna-krava-v1';
+const CACHE = 'vajecna-krava-v2';
 
 const PRECACHE = [
   './',
   './index.html',
   './css/style.css',
   './js/game.js',
-  './js/draw.js',
+  './js/models.js',
+  './js/world.js',
   './js/audio.js',
+  './js/vendor/three.module.min.js',
   './manifest.webmanifest',
   './icons/icon.svg',
   './icons/icon-192.png',

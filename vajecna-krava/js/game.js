@@ -1,264 +1,303 @@
-import { sfx, initAudio, setSound, suspendAudio } from './audio.js';
-import { drawCow, drawCloud, drawEgg, drawPoop, drawPower, drawBasket, star, SKINS, POWERS, OUTLINE } from './draw.js';
-
-// Polyfill pro starší WebView.
-if (!CanvasRenderingContext2D.prototype.roundRect) {
-  CanvasRenderingContext2D.prototype.roundRect = function (x, y, w, h, r) {
-    r = Math.min(typeof r === 'number' ? r : 0, w / 2, h / 2);
-    this.moveTo(x + r, y);
-    this.arcTo(x + w, y, x + w, y + h, r);
-    this.arcTo(x + w, y + h, x, y + h, r);
-    this.arcTo(x, y + h, x, y, r);
-    this.arcTo(x, y, x + w, y, r);
-    this.closePath();
-  };
-}
+import * as THREE from './vendor/three.module.min.js';
+import { sfx, initAudio, setSound, suspendAudio, ufoHum } from './audio.js';
+import {
+  makeCow,
+  animateCow,
+  makeGirl,
+  animateGirl,
+  makeAlien,
+  ALIEN_TYPES,
+  makeUfo,
+  makeViewGun,
+  makePickup,
+  PROJ_GEO,
+  PROJ_MAT,
+  basic,
+} from './models.js';
+import { buildWorld, resolveCircle, pointBlocked, ARENA_R } from './world.js';
 
 const $ = (id) => document.getElementById(id);
 const rand = (a, b) => a + Math.random() * (b - a);
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 const pick = (arr) => arr[Math.floor(Math.random() * arr.length)];
+const v3 = () => new THREE.Vector3();
+const TMP = v3();
+const TMP2 = v3();
+
+const isTouch = matchMedia('(pointer: coarse)').matches || 'ontouchstart' in window;
+if (isTouch) document.body.classList.add('touch');
 
 /* ================= uložená data ================= */
 
-const SAVE_KEY = 'vajecna-krava-v1';
-const DEFAULTS = {
-  coins: 0,
-  best: 0,
-  up: { basket: 0, lives: 0, power: 0, luck: 0 },
-  skins: ['strakata'],
-  skin: 'strakata',
-  sound: true,
-  games: 0,
-  eggs: 0,
-};
-
-function loadSave() {
+const SAVE_KEY = 'vajecna-krava-fps-v1';
+const save = (() => {
+  const d = { best: 0, bestWave: 0, sound: true, shadows: !isTouch, sens: 1, assist: true };
   try {
-    const s = JSON.parse(localStorage.getItem(SAVE_KEY) || 'null') || {};
-    return {
-      ...DEFAULTS,
-      ...s,
-      up: { ...DEFAULTS.up, ...(s.up || {}) },
-      skins: Array.isArray(s.skins) && s.skins.length ? s.skins : ['strakata'],
-    };
+    return { ...d, ...(JSON.parse(localStorage.getItem(SAVE_KEY) || 'null') || {}) };
   } catch {
-    return { ...DEFAULTS, up: { ...DEFAULTS.up }, skins: ['strakata'] };
+    return d;
   }
-}
-const save = loadSave();
-if (!SKINS[save.skin]) save.skin = 'strakata';
+})();
 function persist() {
   try {
     localStorage.setItem(SAVE_KEY, JSON.stringify(save));
   } catch {
-    /* soukromé okno apod. – hra jede dál bez ukládání */
+    /* bez ukládání */
   }
 }
 
-const UPGRADES = [
-  { id: 'basket', icon: '🧺', name: 'Širší košík', desc: 'Košík je o kus širší.', costs: [80, 220, 500] },
-  { id: 'lives', icon: '❤️', name: 'Srdíčko navíc', desc: '+1 život na začátku hry.', costs: [150, 450] },
-  { id: 'power', icon: '✨', name: 'Silnější bonusy', desc: 'Bonusy vydrží déle.', costs: [100, 300, 700] },
-  { id: 'luck', icon: '🥚', name: 'Zlaté štěstí', desc: 'Víc zlatých vajec.', costs: [120, 350, 800] },
-];
+/* ================= renderer a scéna ================= */
 
-/* ================= canvas a rozměry ================= */
-
-const VW = 400; // virtuální šířka hřiště
 const cv = $('cv');
-const ctx = cv.getContext('2d');
-let scale = 1;
-let VH = 700;
-let dpr = 1;
-let groundY = 660;
-let rimY = 600;
-let cowY = 170;
-const BASKET_H = 44;
+const renderer = new THREE.WebGLRenderer({ canvas: cv, antialias: !isTouch, powerPreference: 'high-performance' });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, isTouch ? 1.5 : 2));
+renderer.shadowMap.enabled = save.shadows;
+renderer.shadowMap.type = THREE.PCFShadowMap;
+
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(75, 1, 0.05, 320);
+camera.rotation.order = 'YXZ';
+scene.add(camera);
+
+const world = buildWorld(scene);
+const colliders = world.colliders;
 
 function resize() {
-  const r = cv.getBoundingClientRect();
-  dpr = Math.min(2.5, window.devicePixelRatio || 1);
-  cv.width = Math.max(1, Math.round(r.width * dpr));
-  cv.height = Math.max(1, Math.round(r.height * dpr));
-  scale = r.width / VW;
-  VH = r.height / scale;
-  groundY = VH - 36;
-  rimY = groundY - BASKET_H - 2;
-  const hudBottom = ($('hud').hidden ? 70 : 92) / scale;
-  cowY = Math.max(hudBottom + 92, VH * 0.24);
-  for (const s of scenery.clouds) s.y = Math.min(s.y, VH * 0.5);
+  const w = cv.clientWidth || window.innerWidth;
+  const h = cv.clientHeight || window.innerHeight;
+  renderer.setSize(w, h, false);
+  camera.aspect = w / h;
+  camera.fov = w < h ? 88 : 72;
+  camera.updateProjectionMatrix();
+}
+window.addEventListener('resize', resize);
+
+function setShadows(on) {
+  renderer.shadowMap.enabled = on;
+  world.sun.castShadow = on;
+  scene.traverse((o) => {
+    if (o.material) (Array.isArray(o.material) ? o.material : [o.material]).forEach((m) => (m.needsUpdate = true));
+  });
 }
 
-/* ================= scenérie ================= */
+/* ================= zbraně ================= */
 
-const scenery = {
-  clouds: Array.from({ length: 5 }, (_, i) => ({
-    x: rand(0, VW),
-    y: 60 + i * 55 + rand(-20, 20),
-    w: rand(70, 130),
-    v: rand(4, 12),
-    a: rand(0.55, 0.9),
-  })),
-  stars: Array.from({ length: 45 }, () => ({ x: rand(0, VW), y: rand(0, 1), r: rand(0.6, 1.8), p: rand(0, 6) })),
-  tufts: Array.from({ length: 26 }, () => ({ x: rand(0, VW), h: rand(5, 11) })),
-  flowers: Array.from({ length: 9 }, () => ({ x: rand(10, VW - 10), c: pick(['#ffffff', '#ffd84a', '#ff8fb1', '#b9a3ff']) })),
-};
-
-const SKIES = [
-  { top: '#5ab8ff', bot: '#d4f1ff', h1: '#9fd86f', h2: '#6cc04f', grass: '#4caf3e', sun: '#ffe066', night: 0 },
-  { top: '#ff8f6b', bot: '#ffe0a3', h1: '#b5c062', h2: '#8aa645', grass: '#6c9a37', sun: '#ff7a3d', night: 0 },
-  { top: '#141c46', bot: '#4b3f7a', h1: '#36546e', h2: '#284460', grass: '#2b4f3c', sun: '#f4f1d0', night: 1 },
-  { top: '#ff9ccc', bot: '#fff0e0', h1: '#a7d77a', h2: '#7dc25a', grass: '#5bb244', sun: '#fff1a8', night: 0 },
+const WEAPONS = [
+  { id: 'egg', name: 'Vajíčkomet', mag: 8, reserve: Infinity, rate: 4, dmg: 1, speed: 46, spread: 0.008, pellets: 1, reload: 0.95, proj: 'egg', grav: 2.2, kick: 0.6, sfx: 'shotEgg' },
+  { id: 'milk', name: 'Mléčný kulomet', mag: 40, reserve: 80, rate: 12, dmg: 0.45, speed: 60, spread: 0.03, pellets: 1, reload: 1.6, proj: 'drop', grav: 1.2, kick: 0.25, sfx: 'shotMilk' },
+  { id: 'gold', name: 'Zlatá brokovnice', mag: 6, reserve: 12, rate: 1.4, dmg: 0.75, speed: 42, spread: 0.075, pellets: 8, reload: 1.8, proj: 'pellet', grav: 2, kick: 1.4, sfx: 'shotGold' },
 ];
-const hexRgb = (h) => {
-  const n = parseInt(h.slice(1), 16);
-  return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+const GUN_BASE = new THREE.Vector3(0.19, -0.16, -0.36);
+const GUN_SCALE = 0.5;
+const viewGuns = WEAPONS.map((w) => {
+  const g = makeViewGun(w.id);
+  g.visible = false;
+  g.scale.setScalar(GUN_SCALE);
+  camera.add(g);
+  return g;
+});
+
+/* ================= postavy ================= */
+
+const cow = { mesh: makeCow(), pos: v3(), target: v3(), hp: 100, max: 100, layT: 10, layCount: 0, mooCd: 0, alertCd: 0, walking: false, attacked: 0, lift: 0 };
+scene.add(cow.mesh);
+
+const GIRLS = [
+  { name: 'Kája', hair: '#f2c14e', shirt: '#ff7aa8', helmet: '#5b7a3a', color: '#ff7aa8', baseAngle: Math.PI * 0.75 },
+  { name: 'Míša', hair: '#3b2416', shirt: '#4aa3ff', helmet: '#c0485a', color: '#4aa3ff', baseAngle: Math.PI * 0.25 },
+];
+const girls = GIRLS.map((d) => {
+  const mesh = makeGirl(d);
+  scene.add(mesh);
+  return { ...d, mesh, pos: v3(), hp: 60, max: 60, down: 0, fireCd: 1, barkCd: 3, walking: false, aiming: false, aimYaw: 0 };
+});
+
+const P = {
+  pos: v3(),
+  vel: v3(),
+  y: 0,
+  vy: 0,
+  yaw: 0,
+  pitch: 0,
+  hp: 100,
+  max: 100,
+  weapon: 0,
+  ammo: WEAPONS.map((w) => ({ mag: w.mag, reserve: w.reserve })),
+  reloadT: 0,
+  fireCd: 0,
+  swapT: 0,
+  recoil: 0,
+  bob: 0,
+  kills: 0,
+  shots: 0,
+  hits: 0,
+  eggsEaten: 0,
+  hurtT: 0,
+  flashT: 0,
 };
-const SKY_RGB = SKIES.map((s) => Object.fromEntries(Object.entries(s).map(([k, v]) => [k, typeof v === 'string' ? hexRgb(v) : v])));
-function skyAt(phase) {
-  const n = SKIES.length;
-  const i = Math.floor(phase) % n;
-  const j = (i + 1) % n;
-  const f = phase - Math.floor(phase);
-  const e = f * f * (3 - 2 * f);
-  const a = SKY_RGB[i];
-  const b = SKY_RGB[j];
-  const out = {};
-  for (const k of Object.keys(a)) {
-    if (typeof a[k] === 'number') out[k] = a[k] + (b[k] - a[k]) * e;
-    else {
-      const c = a[k].map((v, idx) => Math.round(v + (b[k][idx] - v) * e));
-      out[k] = `rgb(${c[0]},${c[1]},${c[2]})`;
-    }
-  }
-  return out;
-}
 
-/* ================= stav hry ================= */
-
-const G = {
+const S = {
   state: 'menu', // menu | play | paused | over
   t: 0,
   score: 0,
-  eggs: 0,
-  golden: 0,
-  level: 1,
-  nextLevelAt: 12,
-  lives: 3,
-  maxLives: 3,
-  combo: 0,
-  bestCombo: 0,
-  items: [],
-  parts: [],
-  splats: [],
-  texts: [],
-  cows: [],
-  power: { slow: 0, magnet: 0, big: 0 },
-  powerMax: { slow: 1, magnet: 1, big: 1 },
-  frenzy: 0,
-  basket: { x: VW / 2, w: 84, bump: 0, eggs: 0, goldenIn: 0, dirty: 0, vx: 0 },
-  shake: 0,
-  hurt: 0,
-  dying: 0,
-  skyPhase: 0,
-  hintT: 0,
-  menuCowY: 0,
+  wave: 0,
+  queue: [],
+  spawnCd: 0,
+  breakT: 0,
+  waveActive: false,
+  enemies: [],
+  projs: [],
+  pickups: [],
+  decals: [],
+  ufo: null,
+  overT: 0,
 };
 
-function makeCow(name, x, skin, pitch = 1) {
-  return {
-    name,
-    x,
-    y: cowY,
-    dir: Math.random() < 0.5 ? -1 : 1,
-    target: x,
-    walk: 0,
-    idle: 0,
-    layT: rand(0.8, 1.6),
-    laying: 0,
-    layKind: null,
-    squash: 0,
-    blinkT: rand(1, 4),
-    blink: 0,
-    moo: 0,
-    tail: 0,
-    pitch,
-    skin,
-    enter: 1, // 1 = právě přichází (sjíždí z nebe)
-  };
+/* ================= částice ================= */
+
+const particles = [];
+const PARTICLE_GEO = new THREE.BoxGeometry(1, 1, 1);
+for (let i = 0; i < 240; i++) {
+  const m = new THREE.Mesh(PARTICLE_GEO, new THREE.MeshBasicMaterial({ color: '#fff' }));
+  m.visible = false;
+  scene.add(m);
+  particles.push({ mesh: m, vel: v3(), life: 0, max: 1, grav: 9, active: false });
+}
+let pIdx = 0;
+function burst(pos, n, colors, speed = 4, size = 0.08, grav = 9, life = 0.8) {
+  for (let i = 0; i < n; i++) {
+    const p = particles[pIdx];
+    pIdx = (pIdx + 1) % particles.length;
+    p.active = true;
+    p.life = 0;
+    p.max = rand(life * 0.5, life);
+    p.grav = grav;
+    p.mesh.visible = true;
+    p.mesh.position.copy(pos);
+    p.mesh.scale.setScalar(size * rand(0.6, 1.4));
+    p.mesh.material.color.set(Array.isArray(colors) ? pick(colors) : colors);
+    p.vel.set(rand(-1, 1), rand(-0.2, 1.2), rand(-1, 1)).normalize().multiplyScalar(speed * rand(0.4, 1));
+  }
+}
+function updateParticles(dt) {
+  for (const p of particles) {
+    if (!p.active) continue;
+    p.life += dt;
+    if (p.life >= p.max) {
+      p.active = false;
+      p.mesh.visible = false;
+      continue;
+    }
+    p.vel.y -= p.grav * dt;
+    p.mesh.position.addScaledVector(p.vel, dt);
+    if (p.mesh.position.y < 0.02) {
+      p.mesh.position.y = 0.02;
+      p.vel.multiplyScalar(0.3);
+    }
+    p.mesh.rotation.x += dt * 8;
+    p.mesh.rotation.y += dt * 6;
+    const k = 1 - p.life / p.max;
+    p.mesh.scale.multiplyScalar(k > 0.3 ? 1 : 0.92);
+  }
 }
 
-function difficulty() {
-  const L = Math.min(G.level, 18);
-  const cows = G.cows.length || 1;
-  return {
-    interval: Math.max(0.42, 1.25 - (L - 1) * 0.07) * (0.55 + 0.45 * cows),
-    g: 250 + (L - 1) * 21,
-    cowSpeed: 70 + (L - 1) * 9,
-    poop: G.level < 2 ? 0 : Math.min(0.3, 0.1 + (G.level - 2) * 0.025),
-    golden: 0.05 + save.up.luck * 0.025,
-    power: 0.05,
-    kick: Math.min(90, 20 + L * 5),
-  };
-}
-
-function basketWidth() {
-  const base = 84 + save.up.basket * 12;
-  return G.power.big > 0 ? base * 1.55 : base;
+const DECAL_GEO = new THREE.CircleGeometry(1, 10).rotateX(-Math.PI / 2);
+function addDecal(x, z, kind) {
+  const g = new THREE.Group();
+  if (kind === 'egg') {
+    const white = new THREE.Mesh(DECAL_GEO, basic('#fff8ec'));
+    white.scale.set(0.32, 1, 0.26);
+    const yolk = new THREE.Mesh(DECAL_GEO, basic('#ffc21a'));
+    yolk.scale.setScalar(0.12);
+    yolk.position.y = 0.004;
+    g.add(white, yolk);
+  } else {
+    const goo = new THREE.Mesh(DECAL_GEO, basic(kind));
+    goo.scale.set(0.6, 1, 0.5);
+    g.add(goo);
+  }
+  g.position.set(x, 0.015 + Math.random() * 0.01, z);
+  g.rotation.y = rand(0, 6);
+  scene.add(g);
+  S.decals.push({ mesh: g, life: 12 });
+  if (S.decals.length > 40) scene.remove(S.decals.shift().mesh);
 }
 
 /* ================= HUD ================= */
 
 const hud = {
   score: $('hud-score'),
-  hearts: $('hud-hearts'),
-  level: $('hud-level'),
-  combo: $('hud-combo'),
-  powers: $('hud-powers'),
-  hint: $('hud-hint'),
-  cache: {},
+  wave: $('hud-wave'),
+  cow: $('hud-cow'),
+  cowBar: document.querySelector('.cowbar'),
+  ufo: $('hud-ufo'),
+  ufoBar: $('hud-ufo-bar'),
+  enemies: $('hud-enemies'),
+  hp: $('hud-hp'),
+  hpNum: $('hud-hp-num'),
+  weapon: $('hud-weapon'),
+  mag: $('hud-mag'),
+  reserve: $('hud-reserve'),
+  reload: $('hud-reload'),
+  squad: $('hud-squad'),
+  hit: $('hitmarker'),
+  cross: $('crosshair'),
+  vignette: $('vignette'),
+  c: {},
 };
-
-function renderHearts(lostIndex = -1) {
-  let html = '';
-  for (let i = 0; i < G.maxLives; i++) {
-    const cls = i < G.lives ? 'heart' : 'heart empty';
-    html += `<i class="${cls}${i === lostIndex ? ' lost' : ''}"></i>`;
+function setText(el, key, val) {
+  if (hud.c[key] !== val) {
+    hud.c[key] = val;
+    el.textContent = val;
   }
-  hud.hearts.innerHTML = html;
+}
+function setWidth(el, key, frac) {
+  const v = Math.round(clamp(frac, 0, 1) * 100);
+  if (hud.c[key] !== v) {
+    hud.c[key] = v;
+    el.style.width = v + '%';
+  }
+}
+function updateHud() {
+  setText(hud.score, 'score', String(S.score));
+  setText(hud.wave, 'wave', `Vlna ${S.wave}`);
+  setWidth(hud.cow, 'cow', cow.hp / cow.max);
+  hud.cowBar.classList.toggle('danger', cow.hp < 35);
+  hud.ufo.hidden = !S.ufo || S.ufo.phase !== 'beam';
+  if (S.ufo) setWidth(hud.ufoBar, 'ufo', S.ufo.progress);
+  const left = S.enemies.length + S.queue.length;
+  setText(hud.enemies, 'en', S.waveActive ? `Ufoni: ${left}${S.ufo ? ' + UFO' : ''}` : S.breakT > 0 ? `Další vlna za ${Math.ceil(S.breakT)} s` : '');
+  setWidth(hud.hp, 'hp', P.hp / P.max);
+  setText(hud.hpNum, 'hpn', String(Math.ceil(P.hp)));
+  const w = WEAPONS[P.weapon];
+  const a = P.ammo[P.weapon];
+  setText(hud.weapon, 'wn', w.name);
+  setText(hud.mag, 'mag', String(a.mag));
+  setText(hud.reserve, 'res', a.reserve === Infinity ? '/ ∞' : `/ ${a.reserve}`);
+  hud.reload.hidden = P.reloadT <= 0;
+  const sq = girls.map((g) => `${g.name}:${g.down > 0 ? 'd' + Math.ceil(g.down) : Math.round((g.hp / g.max) * 10)}`).join(',');
+  if (hud.c.sq !== sq) {
+    hud.c.sq = sq;
+    hud.squad.innerHTML = girls
+      .map(
+        (g) =>
+          `<div class="mate${g.down > 0 ? ' down' : ''}"><span class="dot" style="background:${g.color}"></span>${g.name} ${
+            g.down > 0 ? `<small>vstává ${Math.ceil(g.down)} s</small>` : `<div class="bar"><i style="width:${(g.hp / g.max) * 100}%"></i></div>`
+          }</div>`
+      )
+      .join('');
+  }
+  const gap = 5 + P.recoil * 10 + (P.vel.length() > 1 ? 3 : 0);
+  hud.cross.style.setProperty('--gap', gap.toFixed(1) + 'px');
+  hud.vignette.style.opacity = String(clamp(P.hurtT * 1.6 + (P.hp < 30 ? 0.25 + Math.sin(S.t * 5) * 0.1 : 0), 0, 1));
 }
 
-function updateHud() {
-  const c = hud.cache;
-  if (c.score !== G.score) {
-    hud.score.textContent = G.score;
-    hud.score.classList.remove('bump');
-    void hud.score.offsetWidth;
-    hud.score.classList.add('bump');
-    c.score = G.score;
-  }
-  if (c.level !== G.level) {
-    hud.level.textContent = `Úroveň ${G.level}`;
-    c.level = G.level;
-  }
-  const mult = multiplier();
-  if (c.mult !== mult) {
-    hud.combo.hidden = mult < 2;
-    hud.combo.textContent = `×${mult}`;
-    hud.combo.classList.toggle('hot', mult >= 4);
-    c.mult = mult;
-  }
-  const keys = Object.keys(G.power).filter((k) => G.power[k] > 0);
-  const sig = keys.join(',');
-  if (c.powSig !== sig) {
-    hud.powers.innerHTML = keys.map((k) => `<span class="power" data-k="${k}">${POWERS[k].icon}<i></i></span>`).join('');
-    c.powSig = sig;
-  }
-  for (const el of hud.powers.children) {
-    const k = el.dataset.k;
-    el.querySelector('i').style.setProperty('--p', `${(G.power[k] / G.powerMax[k]) * 100}%`);
-  }
+let hitTimer = 0;
+function hitmarker(kill) {
+  hud.hit.classList.add('on');
+  hud.hit.classList.toggle('kill', !!kill);
+  clearTimeout(hitTimer);
+  hitTimer = setTimeout(() => hud.hit.classList.remove('on', 'kill'), kill ? 220 : 110);
 }
 
 let bannerTimer = 0;
@@ -269,954 +308,1230 @@ function banner(text, sub = '') {
   void b.offsetWidth;
   b.classList.add('show');
   clearTimeout(bannerTimer);
-  bannerTimer = setTimeout(() => b.classList.remove('show'), 2000);
+  bannerTimer = setTimeout(() => b.classList.remove('show'), 2500);
 }
 
-/* ================= efekty ================= */
-
-function vibrate(ms) {
-  try {
-    navigator.vibrate?.(ms);
-  } catch {
-    /* nic */
-  }
+function toast(html) {
+  const box = $('toasts');
+  const el = document.createElement('div');
+  el.className = 'toast';
+  el.innerHTML = html;
+  box.appendChild(el);
+  while (box.children.length > 3) box.firstChild.remove();
+  setTimeout(() => el.remove(), 2700);
 }
 
-function floatText(x, y, text, color = '#fff', size = 22) {
-  G.texts.push({ x, y, text, color, size, life: 0, max: 0.9 });
-}
-
-function burst(x, y, n, opts = {}) {
-  for (let i = 0; i < n; i++) {
-    const a = opts.angle != null ? opts.angle + rand(-opts.spread, opts.spread) : rand(0, Math.PI * 2);
-    const sp = rand(opts.min || 60, opts.max || 220);
-    G.parts.push({
-      x,
-      y,
-      vx: Math.cos(a) * sp,
-      vy: Math.sin(a) * sp,
-      g: opts.g ?? 500,
-      life: 0,
-      max: rand(0.4, opts.life || 0.9),
-      size: rand(opts.size?.[0] || 2, opts.size?.[1] || 5),
-      color: Array.isArray(opts.color) ? pick(opts.color) : opts.color || '#fff',
-      type: opts.type || 'dot',
-      rot: rand(0, 6),
-      vr: rand(-10, 10),
-    });
-  }
-}
-
-/* ================= herní logika ================= */
-
-function multiplier() {
-  return Math.min(5, 1 + Math.floor(G.combo / 5));
-}
-
-function resetRun() {
-  G.score = 0;
-  G.eggs = 0;
-  G.golden = 0;
-  G.level = 1;
-  G.nextLevelAt = 12;
-  G.maxLives = 3 + save.up.lives;
-  G.lives = G.maxLives;
-  G.combo = 0;
-  G.bestCombo = 0;
-  G.items = [];
-  G.parts = [];
-  G.texts = [];
-  G.splats = [];
-  G.power = { slow: 0, magnet: 0, big: 0 };
-  G.frenzy = 0;
-  G.dying = 0;
-  G.hurt = 0;
-  G.shake = 0;
-  G.basket = { x: VW / 2, w: basketWidth(), bump: 0, eggs: 0, goldenIn: 0, dirty: 0, vx: 0 };
-  const main = G.cows[0] || makeCow('Bětka', VW / 2, save.skin);
-  main.skin = save.skin;
-  main.layT = 1.2;
-  main.laying = 0;
-  G.cows = [main];
-  hud.cache = {};
-  renderHearts();
-}
-
-function startGame() {
-  initAudio();
-  resetRun();
-  G.state = 'play';
-  G.hintT = 3.5;
-  hud.hint.classList.remove('gone');
-  hud.hint.hidden = false;
-  showScreen(null);
-  $('hud').hidden = false;
-  resize();
-  save.games++;
-  persist();
-  sfx.moo(1);
-  G.cows[0].moo = 1;
-}
-
-function chooseLay() {
-  const d = difficulty();
-  if (G.frenzy > 0) return Math.random() < 0.2 ? 'golden' : 'egg';
-  const r = Math.random();
-  if (r < d.poop) return 'poop';
-  if (r < d.poop + d.power) {
-    const opts = ['slow', 'magnet', 'big'];
-    if (G.lives < G.maxLives) opts.push('heart', 'heart');
-    return 'p:' + pick(opts);
-  }
-  return Math.random() < d.golden ? 'golden' : 'egg';
-}
-
-function spawnFromCow(c, kind) {
-  const d = difficulty();
-  const rearX = c.x - c.dir * 50 * 0.9;
-  const y = c.y - 32;
-  const isPower = kind.startsWith('p:');
-  const it = {
-    kind: isPower ? 'power' : kind,
-    power: isPower ? kind.slice(2) : null,
-    x: clamp(rearX, 20, VW - 20),
-    y,
-    py: y,
-    vx: -c.dir * rand(10, d.kick) + rand(-15, 15),
-    vy: rand(-90, -40),
-    r: kind === 'golden' ? 17 : kind === 'poop' ? 21 : isPower ? 17 : 16,
-    rot: rand(-0.4, 0.4),
-    vr: rand(-3, 3),
-    tint: Math.random() < 0.35,
-    t: rand(0, 5),
-  };
-  G.items.push(it);
-  if (kind === 'poop') {
-    sfx.pff();
-    burst(rearX, y, 6, { color: 'rgba(160,200,90,0.8)', min: 20, max: 60, g: -40, life: 0.7, size: [4, 8] });
-  } else sfx.plop();
-}
-
-function updateCow(c, dt, inPlay) {
-  const d = difficulty();
-  const ts = G.power.slow > 0 ? 0.55 : 1;
-  const ty = G.state === 'menu' ? G.menuCowY : cowY;
-  c.enter = Math.max(0, c.enter - dt * 1.5);
-  c.y += (ty - c.y) * (1 - Math.exp(-dt * 4));
-
-  c.blinkT -= dt;
-  if (c.blinkT <= 0) {
-    c.blink = 0.12;
-    c.blinkT = rand(1.5, 5);
-  }
-  c.blink = Math.max(0, c.blink - dt);
-  c.moo = Math.max(0, c.moo - dt * 1.1);
-  c.tail = Math.max(0, c.tail - dt * 3);
-
-  if (c.laying > 0) {
-    c.laying -= dt * ts;
-    const p = 1 - c.laying / 0.24;
-    c.squash = Math.sin(clamp(p, 0, 1) * Math.PI);
-    if (c.layKind === 'poop') c.tail = 1;
-    if (c.laying <= 0) {
-      c.squash = 0;
-      if (c.layKind) spawnFromCow(c, c.layKind);
-      c.layKind = null;
-    }
-    return;
-  }
-
-  if (c.idle > 0) {
-    c.idle -= dt * ts;
-  } else {
-    const dx = c.target - c.x;
-    if (Math.abs(dx) < 4) {
-      c.target = rand(60, VW - 60);
-      if (Math.random() < 0.3) c.idle = rand(0.2, 0.8);
-    } else {
-      const sp = (inPlay ? d.cowSpeed * (G.frenzy > 0 ? 1.5 : 1) : 45) * ts;
-      const step = Math.sign(dx) * Math.min(Math.abs(dx), sp * dt);
-      c.x += step;
-      c.dir = Math.sign(dx) || c.dir;
-      c.walk += dt * sp * 0.13;
-    }
-  }
-
-  c.layT -= dt * ts;
-  if (c.layT <= 0) {
-    if (inPlay && G.dying <= 0 && c.enter <= 0) {
-      const interval = G.frenzy > 0 ? 0.28 : d.interval;
-      c.layT = interval * rand(0.7, 1.3);
-      c.layKind = chooseLay();
-      if (c.layKind === 'poop') c.tail = 1;
-      c.laying = 0.24;
-    } else if (G.state === 'menu') {
-      c.layT = rand(2.5, 4.5);
-      c.layKind = Math.random() < 0.15 ? 'golden' : 'egg';
-      c.laying = 0.24;
-    } else c.layT = 0.5;
-  }
-}
-
-function catchItem(it) {
-  const b = G.basket;
-  b.bump = 1;
-  if (it.kind === 'egg' || it.kind === 'golden') {
-    G.combo++;
-    G.bestCombo = Math.max(G.bestCombo, G.combo);
-    const m = multiplier();
-    const pts = (it.kind === 'golden' ? 50 : 10) * m;
-    G.score += pts;
-    G.eggs++;
-    b.eggs++;
-    if (it.kind === 'golden') {
-      G.golden++;
-      b.goldenIn = Math.min(b.goldenIn + 1, 7);
-      sfx.golden();
-      burst(it.x, rimY, 18, { color: ['#fff6a0', '#ffd23f', '#ffffff'], type: 'star', min: 80, max: 260, size: [4, 8] });
-      floatText(it.x, rimY - 20, `+${pts}`, '#ffd23f', 28);
-    } else {
-      sfx.catch(G.combo);
-      burst(it.x, rimY, 6, { color: ['#ffffff', '#fff1c4'], min: 40, max: 140, size: [2, 4] });
-      floatText(it.x, rimY - 18, `+${pts}`, '#fff', m > 1 ? 24 : 20);
-    }
-    if (G.combo > 0 && G.combo % 5 === 0 && m <= 5) floatText(b.x, rimY - 50, `Kombo ×${m}!`, '#ffcf3a', 26);
-    if (G.eggs >= G.nextLevelAt) levelUp();
-  } else if (it.kind === 'poop') {
-    G.combo = 0;
-    b.dirty = 2.2;
-    b.eggs = Math.max(0, b.eggs - 2);
-    sfx.splat();
-    burst(it.x, rimY, 16, { color: ['#6b4423', '#8a5a30', '#4e3018'], min: 60, max: 240, size: [3, 7] });
-    floatText(it.x, rimY - 22, 'Fuj!', '#a8754a', 30);
-    loseLife();
-  } else if (it.kind === 'power') {
-    applyPower(it.power, it.x);
-  }
-}
-
-function applyPower(kind, x) {
-  G.score += 25;
-  if (kind === 'heart') {
-    if (G.lives < G.maxLives) G.lives++;
-    renderHearts();
-    sfx.heart();
-    floatText(x, rimY - 24, '+1 ❤️', '#ff5a5f', 26);
-  } else {
-    const dur = 7 * (1 + save.up.power * 0.25);
-    G.power[kind] = dur;
-    G.powerMax[kind] = dur;
-    sfx.power();
-    floatText(x, rimY - 24, POWERS[kind].name + '!', '#fff', 24);
-  }
-  burst(x, rimY, 14, { color: ['#ffffff', POWERS[kind].color], type: 'star', min: 60, max: 200, size: [3, 6] });
-}
-
-function landItem(it) {
-  if (it.kind === 'egg' || it.kind === 'golden') {
-    G.splats.push({ x: it.x, y: groundY + rand(2, 10), r: rand(15, 19), life: 4, golden: it.kind === 'golden', seed: Math.random() * 10 });
-    burst(it.x, groundY, 8, { color: it.kind === 'golden' ? '#ffcf2e' : '#fff3df', type: 'shell', min: 80, max: 220, size: [4, 7], angle: -Math.PI / 2, spread: 1.1 });
-    if (G.state === 'play') {
-      sfx.crack();
-      G.combo = 0;
-      floatText(it.x, groundY - 30, 'Křach!', '#fff', 24);
-      loseLife();
-    }
-  } else if (it.kind === 'poop') {
-    G.splats.push({ x: it.x, y: groundY + rand(2, 8), r: rand(12, 15), life: 2.5, poop: true, seed: 0 });
-    if (G.state === 'play') sfx.softLand();
-  } else {
-    burst(it.x, groundY - 8, 8, { color: '#ffffff', min: 30, max: 90, g: -60, size: [3, 6] });
-  }
-}
-
-function loseLife() {
-  if (G.dying > 0 || G.state !== 'play') return;
-  G.lives--;
-  G.shake = 0.35;
-  G.hurt = 0.45;
-  vibrate(70);
-  renderHearts(G.lives);
-  sfx.hurt();
-  if (G.lives <= 0) {
-    G.dying = 1.3;
-    for (const c of G.cows) c.moo = 1;
-    sfx.moo(0.8, 1.3);
-  }
-}
-
-function levelUp() {
-  G.level++;
-  G.nextLevelAt += 10 + G.level * 2;
-  sfx.level();
-  const lead = G.cows[0];
-  lead.moo = 1;
-  setTimeout(() => sfx.moo(1.05), 250);
-
-  if (G.level === 5 || G.level === 10) {
-    const name = G.level === 5 ? 'Bára' : 'Líza';
-    const skins = Object.keys(SKINS).filter((k) => k !== save.skin);
-    const c = makeCow(name, G.level === 5 ? 60 : VW - 60, pick(skins), G.level === 5 ? 1.25 : 0.85);
-    c.y = -80;
-    c.layT = 2;
-    G.cows.push(c);
-    banner(`Přichází ${name}!`, `Úroveň ${G.level}`);
-    setTimeout(() => sfx.moo(c.pitch), 700);
-  } else if (G.level % 4 === 0) {
-    G.frenzy = 5;
-    sfx.frenzy();
-    banner('Vaječná smršť!', 'Jen vejce, chytej!');
-  } else {
-    banner(`Úroveň ${G.level}`, pick(['Bětka přidává!', 'Rychleji!', 'Bučí to!', 'Vejce letí!', 'Pozor, kravince!']));
-  }
-}
-
-function gameOver() {
-  G.state = 'over';
-  $('hud').hidden = true;
-  const coins = G.eggs + G.golden * 4;
-  save.coins += coins;
-  save.eggs += G.eggs;
-  const isBest = G.score > save.best;
-  if (isBest) save.best = G.score;
-  persist();
-  sfx.over();
-  $('over-title').textContent = G.score === 0 ? 'Ani jedno vejce?' : pick(['Konec hry!', 'Bů-ů-ů…', 'Vejce došla!', 'Hotovo!']);
-  $('over-score').textContent = G.score;
-  $('over-best-badge').hidden = !isBest || G.score === 0;
-  $('over-eggs').textContent = G.eggs;
-  $('over-golden').textContent = G.golden;
-  $('over-combo').textContent = G.bestCombo;
-  $('over-level').textContent = G.level;
-  $('over-coins').textContent = coins;
-  showScreen('scr-over');
+function bark(g, lines) {
+  if (g.barkCd > 0 || g.down > 0) return;
+  g.barkCd = rand(7, 12);
+  toast(`<b style="color:${g.color}">${g.name}:</b> ${pick(lines)}`);
 }
 
 /* ================= vstup ================= */
 
-const input = { left: false, right: false, dragging: false, lastX: 0, pointerId: null };
+const input = { fwd: 0, side: 0, sprint: false, fire: false, jump: false, keys: new Set(), lookDX: 0, lookDY: 0 };
+const stick = { id: null, ox: 0, oy: 0, x: 0, y: 0 };
+const looks = new Map(); // pointerId -> {x, y}
+const stickEl = $('stick');
+const knobEl = $('knob');
 
-function toVirtualX(clientX) {
-  const r = cv.getBoundingClientRect();
-  return (clientX - r.left) / scale;
+function setStick(dx, dy) {
+  const max = 50;
+  const d = Math.hypot(dx, dy);
+  const k = d > max ? max / d : 1;
+  stick.x = (dx * k) / max;
+  stick.y = (dy * k) / max;
+  knobEl.style.transform = `translate(${dx * k}px, ${dy * k}px)`;
 }
 
 cv.addEventListener('pointerdown', (e) => {
   initAudio();
-  if (G.state === 'menu') {
-    // ťuknutí na krávu v menu
-    const r = cv.getBoundingClientRect();
-    const vx = (e.clientX - r.left) / scale;
-    const vy = (e.clientY - r.top) / scale;
-    for (const c of G.cows) {
-      if (Math.abs(vx - c.x) < 70 && vy > c.y - 110 && vy < c.y + 10) {
-        c.moo = 1;
-        sfx.moo(c.pitch * rand(0.95, 1.08));
-        if (c.laying <= 0) {
-          c.layKind = Math.random() < 0.3 ? 'golden' : 'egg';
-          c.laying = 0.24;
-        }
-      }
-    }
+  if (S.state !== 'play') return;
+  if (e.pointerType === 'mouse') {
+    if (document.pointerLockElement !== cv) requestLock();
+    else if (e.button === 0) input.fire = true;
     return;
   }
-  if (G.state !== 'play') return;
-  input.dragging = true;
-  input.pointerId = e.pointerId;
-  input.lastX = toVirtualX(e.clientX);
+  const r = cv.getBoundingClientRect();
+  if (e.clientX - r.left < r.width * 0.42 && stick.id === null) {
+    stick.id = e.pointerId;
+    stick.ox = e.clientX;
+    stick.oy = e.clientY;
+    stickEl.style.left = e.clientX - r.left + 'px';
+    stickEl.style.top = e.clientY - r.top + 'px';
+    stickEl.style.bottom = 'auto';
+    stickEl.classList.add('active');
+    setStick(0, 0);
+  } else {
+    looks.set(e.pointerId, { x: e.clientX, y: e.clientY });
+  }
   try {
     cv.setPointerCapture(e.pointerId);
   } catch {
     /* nic */
   }
 });
-cv.addEventListener('pointermove', (e) => {
-  if (G.state !== 'play') return;
+window.addEventListener('pointermove', (e) => {
   if (e.pointerType === 'mouse') {
-    // myš: košík jde přímo pod kurzor
-    G.basket.x = clamp(toVirtualX(e.clientX), G.basket.w / 2, VW - G.basket.w / 2);
+    if (document.pointerLockElement === cv && S.state === 'play') {
+      input.lookDX += e.movementX * 0.0022 * save.sens;
+      input.lookDY += e.movementY * 0.0022 * save.sens;
+    }
     return;
   }
-  if (!input.dragging || e.pointerId !== input.pointerId) return;
-  const x = toVirtualX(e.clientX);
-  // relativní tažení – prst nezakrývá košík
-  G.basket.x = clamp(G.basket.x + (x - input.lastX) * 1.15, G.basket.w / 2, VW - G.basket.w / 2);
-  input.lastX = x;
+  if (e.pointerId === stick.id) {
+    setStick(e.clientX - stick.ox, e.clientY - stick.oy);
+  } else if (looks.has(e.pointerId)) {
+    const l = looks.get(e.pointerId);
+    input.lookDX += (e.clientX - l.x) * 0.0058 * save.sens;
+    input.lookDY += (e.clientY - l.y) * 0.0058 * save.sens;
+    l.x = e.clientX;
+    l.y = e.clientY;
+  }
 });
-const endDrag = (e) => {
-  if (e.pointerId === input.pointerId) input.dragging = false;
-};
-cv.addEventListener('pointerup', endDrag);
-cv.addEventListener('pointercancel', endDrag);
+function endPointer(e) {
+  if (e.pointerType === 'mouse') {
+    if (e.button === 0) input.fire = false;
+    return;
+  }
+  if (e.pointerId === stick.id) {
+    stick.id = null;
+    setStick(0, 0);
+    stick.x = stick.y = 0;
+    stickEl.classList.remove('active');
+    stickEl.style.left = '';
+    stickEl.style.top = '';
+    stickEl.style.bottom = '';
+  }
+  if (looks.has(e.pointerId)) {
+    looks.delete(e.pointerId);
+    if (e.pointerId === fireId) {
+      fireId = null;
+      input.fire = false;
+      $('t-fire').classList.remove('on');
+    }
+  }
+}
+window.addEventListener('pointerup', endPointer);
+window.addEventListener('pointercancel', endPointer);
+
+// tlačítko střelby zároveň slouží k míření (jako v mobilních FPS)
+let fireId = null;
+$('t-fire').addEventListener('pointerdown', (e) => {
+  e.preventDefault();
+  initAudio();
+  fireId = e.pointerId;
+  input.fire = true;
+  looks.set(e.pointerId, { x: e.clientX, y: e.clientY });
+  $('t-fire').classList.add('on');
+  try {
+    $('t-fire').setPointerCapture(e.pointerId);
+  } catch {
+    /* nic */
+  }
+});
+const tap = (id, fn) =>
+  $(id).addEventListener('pointerdown', (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    initAudio();
+    fn();
+  });
+tap('t-jump', () => (input.jump = true));
+tap('t-reload', () => startReload());
+tap('t-swap', () => switchWeapon((P.weapon + 1) % WEAPONS.length));
+
+function requestLock() {
+  if (isTouch) return;
+  try {
+    const p = cv.requestPointerLock?.();
+    if (p && p.catch) p.catch(() => {});
+  } catch {
+    /* nic */
+  }
+}
+document.addEventListener('pointerlockchange', () => {
+  if (document.pointerLockElement !== cv && S.state === 'play' && !isTouch) pause();
+});
 
 window.addEventListener('keydown', (e) => {
-  if (e.key === 'ArrowLeft' || e.key === 'a' || e.key === 'A') input.left = true;
-  else if (e.key === 'ArrowRight' || e.key === 'd' || e.key === 'D') input.right = true;
-  else if (e.key === 'Escape' || e.key === 'p' || e.key === 'P') {
-    if (G.state === 'play') pause();
-    else if (G.state === 'paused') resume();
-  } else if ((e.key === 'Enter' || e.key === ' ') && (G.state === 'menu' || G.state === 'over') && !anyModalOpen()) {
-    e.preventDefault();
-    startGame();
+  input.keys.add(e.code);
+  if (S.state === 'play') {
+    if (e.code === 'Space') {
+      input.jump = true;
+      e.preventDefault();
+    } else if (e.code === 'KeyR') startReload();
+    else if (e.code === 'Digit1') switchWeapon(0);
+    else if (e.code === 'Digit2') switchWeapon(1);
+    else if (e.code === 'Digit3') switchWeapon(2);
+    else if (e.code === 'KeyQ') switchWeapon((P.weapon + 2) % 3);
+    else if (e.code === 'KeyP') pause();
+  } else if (S.state === 'paused' && e.code === 'KeyP') {
+    resume();
   }
 });
-window.addEventListener('keyup', (e) => {
-  if (e.key === 'ArrowLeft' || e.key === 'a' || e.key === 'A') input.left = false;
-  else if (e.key === 'ArrowRight' || e.key === 'd' || e.key === 'D') input.right = false;
-});
+window.addEventListener('keyup', (e) => input.keys.delete(e.code));
+window.addEventListener(
+  'wheel',
+  (e) => {
+    if (S.state !== 'play') return;
+    switchWeapon((P.weapon + (e.deltaY > 0 ? 1 : 2)) % 3);
+  },
+  { passive: true }
+);
 
-/* ================= update ================= */
-
-function update(dt) {
-  G.t += dt;
-  const inPlay = G.state === 'play';
-
-  // obloha se mění s úrovní
-  const targetPhase = G.state === 'menu' ? 0 : (G.level - 1) / 3;
-  G.skyPhase += (targetPhase - G.skyPhase) * (1 - Math.exp(-dt * 0.8));
-
-  for (const s of scenery.clouds) {
-    s.x += s.v * dt;
-    if (s.x - s.w > VW) {
-      s.x = -s.w;
-      s.y = rand(50, VH * 0.45);
-    }
+function readMoveInput() {
+  const k = input.keys;
+  let f = (k.has('KeyW') || k.has('ArrowUp') ? 1 : 0) - (k.has('KeyS') || k.has('ArrowDown') ? 1 : 0);
+  let s = (k.has('KeyD') || k.has('ArrowRight') ? 1 : 0) - (k.has('KeyA') || k.has('ArrowLeft') ? 1 : 0);
+  input.sprint = k.has('ShiftLeft') || k.has('ShiftRight');
+  if (stick.id !== null) {
+    f = -stick.y;
+    s = stick.x;
+    input.sprint = Math.hypot(stick.x, stick.y) > 0.95;
   }
-
-  if (G.state === 'paused') return;
-
-  if (inPlay) {
-    for (const k of Object.keys(G.power)) G.power[k] = Math.max(0, G.power[k] - dt);
-    G.frenzy = Math.max(0, G.frenzy - dt);
-    G.hintT -= dt;
-    if (G.hintT <= 0 && !hud.hint.classList.contains('gone')) hud.hint.classList.add('gone');
-
-    const b = G.basket;
-    const kb = (input.right ? 1 : 0) - (input.left ? 1 : 0);
-    b.vx += (kb * 520 - b.vx) * (1 - Math.exp(-dt * 14));
-    if (kb || Math.abs(b.vx) > 1) b.x += b.vx * dt;
-    b.w += (basketWidth() - b.w) * (1 - Math.exp(-dt * 10));
-    b.x = clamp(b.x, b.w / 2, VW - b.w / 2);
-    b.bump = Math.max(0, b.bump - dt * 6);
-    b.dirty = Math.max(0, b.dirty - dt);
-
-    if (G.dying > 0) {
-      G.dying -= dt;
-      if (G.dying <= 0) gameOver();
-    }
-  }
-
-  for (const c of G.cows) updateCow(c, dt, inPlay);
-
-  // padající předměty
-  const d = difficulty();
-  const ts = G.power.slow > 0 ? 0.55 : 1;
-  const b = G.basket;
-  for (let i = G.items.length - 1; i >= 0; i--) {
-    const it = G.items[i];
-    it.t += dt;
-    it.py = it.y;
-    const g = it.kind === 'power' ? d.g * 0.6 : d.g;
-    it.vy += g * dt * ts;
-    if (inPlay && G.power.magnet > 0 && it.y > cowY && it.vy > 0) {
-      const dx = b.x - it.x;
-      if (it.kind === 'egg' || it.kind === 'golden') it.x += dx * (1 - Math.exp(-dt * 3.2));
-      else if (it.kind === 'poop' && Math.abs(dx) < 110) it.x -= Math.sign(dx || 1) * 70 * dt;
-    }
-    it.x += it.vx * dt * ts;
-    it.y += it.vy * dt * ts;
-    it.rot += it.vr * dt * ts;
-    if (it.x < it.r) {
-      it.x = it.r;
-      it.vx = Math.abs(it.vx) * 0.6;
-    } else if (it.x > VW - it.r) {
-      it.x = VW - it.r;
-      it.vx = -Math.abs(it.vx) * 0.6;
-    }
-
-    const lip = it.r * 0.55;
-    if (inPlay && G.dying <= 0 && it.vy > 0 && it.py + lip < rimY + 4 && it.y + lip >= rimY + 4 && Math.abs(it.x - b.x) < b.w / 2 + it.r * 0.35) {
-      catchItem(it);
-      G.items.splice(i, 1);
-      continue;
-    }
-    if (it.y + it.r * 0.8 >= groundY) {
-      landItem(it);
-      G.items.splice(i, 1);
-    }
-  }
-
-  for (let i = G.parts.length - 1; i >= 0; i--) {
-    const p = G.parts[i];
-    p.life += dt;
-    if (p.life >= p.max) {
-      G.parts.splice(i, 1);
-      continue;
-    }
-    p.vy += p.g * dt;
-    p.x += p.vx * dt;
-    p.y += p.vy * dt;
-    p.rot += p.vr * dt;
-  }
-  for (let i = G.texts.length - 1; i >= 0; i--) {
-    const t = G.texts[i];
-    t.life += dt;
-    t.y -= 50 * dt;
-    if (t.life >= t.max) G.texts.splice(i, 1);
-  }
-  for (let i = G.splats.length - 1; i >= 0; i--) {
-    G.splats[i].life -= dt;
-    if (G.splats[i].life <= 0) G.splats.splice(i, 1);
-  }
-  G.shake = Math.max(0, G.shake - dt);
-  G.hurt = Math.max(0, G.hurt - dt);
+  input.fwd = f;
+  input.side = s;
 }
 
-/* ================= render ================= */
+/* ================= hráč a střelba ================= */
 
-function drawScenery(sky) {
-  const g = ctx.createLinearGradient(0, 0, 0, groundY);
-  g.addColorStop(0, sky.top);
-  g.addColorStop(1, sky.bot);
-  ctx.fillStyle = g;
-  ctx.fillRect(-20, -20, VW + 40, VH + 40);
+function switchWeapon(i) {
+  if (i === P.weapon || S.state !== 'play') return;
+  P.weapon = i;
+  P.reloadT = 0;
+  P.swapT = 0.3;
+  P.fireCd = Math.max(P.fireCd, 0.25);
+  viewGuns.forEach((g, k) => (g.visible = k === i));
+  sfx.reload();
+}
 
-  if (sky.night > 0.02) {
-    ctx.fillStyle = '#fff';
-    for (const s of scenery.stars) {
-      ctx.globalAlpha = sky.night * (0.5 + 0.5 * Math.sin(G.t * 2 + s.p));
-      ctx.beginPath();
-      ctx.arc(s.x, s.y * VH * 0.6, s.r, 0, Math.PI * 2);
-      ctx.fill();
+function startReload() {
+  const w = WEAPONS[P.weapon];
+  const a = P.ammo[P.weapon];
+  if (P.reloadT > 0 || a.mag >= w.mag || a.reserve <= 0) return;
+  P.reloadT = w.reload;
+  sfx.reload();
+}
+
+function camForward(out) {
+  return out.set(-Math.sin(P.yaw) * Math.cos(P.pitch), Math.sin(P.pitch), -Math.cos(P.yaw) * Math.cos(P.pitch));
+}
+
+function assistTarget(from, fwd) {
+  if (!(isTouch && save.assist)) return null;
+  let best = null;
+  let bestAng = 0.075;
+  for (const e of S.enemies) {
+    if (e.spawnT > 0) continue;
+    TMP2.copy(e.pos).setY(e.pos.y + 0.68 * e.T.scale).sub(from);
+    const d = TMP2.length();
+    if (d > 45) continue;
+    const ang = Math.acos(clamp(TMP2.dot(fwd) / d, -1, 1));
+    if (ang < bestAng) {
+      bestAng = ang;
+      best = e.pos.clone().setY(e.pos.y + 0.68 * e.T.scale);
     }
-    ctx.globalAlpha = 1;
+  }
+  return best;
+}
+
+function firePlayer() {
+  const w = WEAPONS[P.weapon];
+  const gun = viewGuns[P.weapon];
+  const muzzle = gun.userData.muzzle.getWorldPosition(v3());
+  const fwd = camForward(v3());
+  const aim = assistTarget(camera.position, fwd) || camera.position.clone().addScaledVector(fwd, 40);
+  for (let i = 0; i < w.pellets; i++) {
+    const dir = aim.clone().sub(muzzle).normalize();
+    dir.x += rand(-w.spread, w.spread);
+    dir.y += rand(-w.spread, w.spread);
+    dir.z += rand(-w.spread, w.spread);
+    dir.normalize();
+    spawnProj('player', muzzle, dir, w.speed, w.proj, w.dmg, w.grav);
+  }
+  P.shots++;
+  P.recoil = Math.min(1.5, P.recoil + w.kick);
+  P.pitch = clamp(P.pitch + w.kick * 0.012, -1.45, 1.45);
+  P.flashT = 0.05;
+  sfx[w.sfx]();
+}
+
+function updatePlayer(dt) {
+  readMoveInput();
+  // rozhlížení
+  P.yaw -= input.lookDX;
+  P.pitch = clamp(P.pitch - input.lookDY, -1.45, 1.45);
+  input.lookDX = input.lookDY = 0;
+
+  // pohyb
+  const speed = input.sprint ? 8.2 : 5.4;
+  const fx = -Math.sin(P.yaw);
+  const fz = -Math.cos(P.yaw);
+  const rx = Math.cos(P.yaw);
+  const rz = -Math.sin(P.yaw);
+  let mx = fx * input.fwd + rx * input.side;
+  let mz = fz * input.fwd + rz * input.side;
+  const ml = Math.hypot(mx, mz);
+  if (ml > 1) {
+    mx /= ml;
+    mz /= ml;
+  }
+  const k = 1 - Math.exp(-dt * (P.y > 0 ? 3 : 12));
+  P.vel.x += (mx * speed - P.vel.x) * k;
+  P.vel.z += (mz * speed - P.vel.z) * k;
+  P.pos.x += P.vel.x * dt;
+  P.pos.z += P.vel.z * dt;
+  resolveCircle(P.pos, 0.4, colliders, P.y);
+  // nechodit skrz Bětku a parťačky
+  pushOut(P.pos, cow.pos, 1.3);
+  for (const g of girls) pushOut(P.pos, g.pos, 0.75);
+
+  if (input.jump && P.y <= 0) P.vy = 5.4;
+  input.jump = false;
+  P.vy -= 15 * dt;
+  P.y = Math.max(0, P.y + P.vy * dt);
+  if (P.y <= 0) P.vy = 0;
+
+  const moving = Math.hypot(P.vel.x, P.vel.z);
+  if (P.y <= 0) P.bob += dt * moving * 1.7;
+  const bobY = Math.sin(P.bob * 2) * 0.04 * Math.min(1, moving / 5);
+  camera.position.set(P.pos.x, 1.6 + P.y + bobY, P.pos.z);
+  camera.rotation.set(P.pitch, P.yaw, 0);
+
+  // zbraň
+  const w = WEAPONS[P.weapon];
+  const a = P.ammo[P.weapon];
+  P.fireCd -= dt;
+  P.swapT = Math.max(0, P.swapT - dt);
+  if (P.reloadT > 0) {
+    P.reloadT -= dt;
+    if (P.reloadT <= 0) {
+      const take = Math.min(w.mag - a.mag, a.reserve);
+      a.mag += take;
+      if (a.reserve !== Infinity) a.reserve -= take;
+    }
+  } else if (input.fire && P.fireCd <= 0 && P.swapT <= 0) {
+    if (a.mag > 0) {
+      firePlayer();
+      a.mag--;
+      P.fireCd = 1 / w.rate;
+      if (a.mag === 0) {
+        if (a.reserve > 0) startReload();
+        else if (P.weapon !== 0) {
+          toast('Došly náboje – sbírej <b>zlatá vejce</b>!');
+          switchWeapon(0);
+        }
+      }
+    } else if (a.reserve > 0) startReload();
+    else {
+      sfx.empty();
+      P.fireCd = 0.3;
+      if (P.weapon !== 0) switchWeapon(0);
+    }
   }
 
-  // slunce / měsíc
-  const sx = VW - 70;
-  const sy = 120 + Math.sin(G.t * 0.3) * 4;
-  const halo = ctx.createRadialGradient(sx, sy, 10, sx, sy, 90);
-  halo.addColorStop(0, sky.sun);
-  halo.addColorStop(1, 'rgba(255,255,255,0)');
-  ctx.globalAlpha = 0.45;
-  ctx.fillStyle = halo;
-  ctx.beginPath();
-  ctx.arc(sx, sy, 90, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.globalAlpha = 1;
-  ctx.fillStyle = sky.sun;
-  ctx.beginPath();
-  ctx.arc(sx, sy, 32, 0, Math.PI * 2);
-  ctx.fill();
-  if (sky.night > 0.5) {
-    ctx.fillStyle = sky.top;
-    ctx.globalAlpha = (sky.night - 0.5) * 2;
-    ctx.beginPath();
-    ctx.arc(sx + 14, sy - 8, 28, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.globalAlpha = 1;
-  }
+  // pohled na zbraň
+  P.recoil = Math.max(0, P.recoil - dt * 6);
+  P.flashT -= dt;
+  const gun = viewGuns[P.weapon];
+  const reloadK = P.reloadT > 0 ? Math.sin((1 - P.reloadT / w.reload) * Math.PI) : 0;
+  gun.position.set(
+    GUN_BASE.x + Math.sin(P.bob) * 0.012 * Math.min(1, moving / 5),
+    GUN_BASE.y - Math.abs(Math.cos(P.bob)) * 0.012 * Math.min(1, moving / 5) - P.swapT * 0.8 - reloadK * 0.12,
+    GUN_BASE.z + P.recoil * 0.06
+  );
+  gun.rotation.set(P.recoil * 0.12 - reloadK * 0.7, 0, reloadK * 0.4);
+  gun.userData.flash.visible = P.flashT > 0;
+  gun.userData.flash.scale.setScalar(rand(0.05, 0.1));
+  if (gun.userData.spin) gun.userData.spin.rotation.z += dt * (input.fire && a.mag > 0 ? 30 : 2);
 
-  for (const c of scenery.clouds) drawCloud(ctx, c.x, c.y, c.w, c.a * (1 - sky.night * 0.5), false);
+  P.hurtT = Math.max(0, P.hurtT - dt);
 
-  // kopce
-  const hill = (base, amp, freq, off, color) => {
-    ctx.fillStyle = color;
-    ctx.beginPath();
-    ctx.moveTo(-10, VH + 10);
-    for (let x = -10; x <= VW + 10; x += 10) {
-      ctx.lineTo(x, base - Math.sin(x * freq + off) * amp - Math.sin(x * freq * 2.3 + off * 2) * amp * 0.35);
+  // sbírání vajec
+  for (let i = S.pickups.length - 1; i >= 0; i--) {
+    const pk = S.pickups[i];
+    if (pk.vy !== 0) continue;
+    if (Math.hypot(pk.pos.x - P.pos.x, pk.pos.z - P.pos.z) < 1.3) {
+      if (pk.kind === 'health') {
+        if (P.hp >= P.max) continue;
+        P.hp = Math.min(P.max, P.hp + 30);
+        P.eggsEaten++;
+        toast('🥚 +30 zdraví');
+      } else {
+        P.ammo[1].reserve += 60;
+        P.ammo[2].reserve += 8;
+        toast('🥚✨ Zlaté vejce: náboje doplněny');
+      }
+      sfx.pickup();
+      scene.remove(pk.mesh);
+      S.pickups.splice(i, 1);
     }
-    ctx.lineTo(VW + 10, VH + 10);
-    ctx.fill();
+  }
+}
+
+function pushOut(p, o, min) {
+  const dx = p.x - o.x;
+  const dz = p.z - o.z;
+  const d = Math.hypot(dx, dz);
+  if (d < min && d > 1e-4) {
+    p.x = o.x + (dx / d) * min;
+    p.z = o.z + (dz / d) * min;
+  }
+}
+
+function damagePlayer(d, from) {
+  if (S.state !== 'play') return;
+  P.hp -= d;
+  P.hurtT = Math.min(0.6, P.hurtT + 0.3);
+  sfx.playerHurt();
+  try {
+    navigator.vibrate?.(40);
+  } catch {
+    /* nic */
+  }
+  if (from) {
+    // trhnutí kamery od zásahu
+    P.pitch += rand(-0.02, 0.02);
+    P.yaw += rand(-0.02, 0.02);
+  }
+  if (P.hp <= 0) {
+    P.hp = 0;
+    gameOver('player');
+  }
+}
+
+/* ================= projektily ================= */
+
+function spawnProj(owner, from, dir, speed, kind, dmg, grav) {
+  const geoKind = kind === 'ally' ? 'egg' : kind;
+  const mesh = new THREE.Mesh(PROJ_GEO[geoKind], PROJ_MAT[kind]);
+  mesh.position.copy(from);
+  scene.add(mesh);
+  const pr = { owner, mesh, pos: mesh.position, vel: dir.clone().multiplyScalar(speed), dmg, grav, kind, life: 2.5 };
+  S.projs.push(pr);
+  return pr;
+}
+
+function enemyCenter(e, out) {
+  return out.copy(e.pos).setY(e.pos.y + 0.68 * e.T.scale);
+}
+
+function updateProjs(dt) {
+  for (let i = S.projs.length - 1; i >= 0; i--) {
+    const pr = S.projs[i];
+    pr.life -= dt;
+    let dead = pr.life <= 0;
+    const steps = Math.max(1, Math.ceil((pr.vel.length() * dt) / 0.3));
+    const h = dt / steps;
+    for (let s = 0; s < steps && !dead; s++) {
+      pr.vel.y -= pr.grav * h;
+      pr.pos.addScaledVector(pr.vel, h);
+      if (pr.pos.y <= 0.03) {
+        dead = true;
+        if (pr.kind === 'egg' || pr.kind === 'ally') addDecal(pr.pos.x, pr.pos.z, 'egg');
+        burst(pr.pos, 4, pr.kind === 'plasma' ? '#7dff5a' : ['#fff8ec', '#ffc21a'], 2, 0.05);
+        break;
+      }
+      if (pointBlocked(pr.pos, colliders)) {
+        dead = true;
+        burst(pr.pos, 5, pr.kind === 'plasma' ? '#7dff5a' : ['#fff8ec', '#ffc21a'], 2.5, 0.05);
+        break;
+      }
+      if (pr.owner !== 'enemy') {
+        for (const e of S.enemies) {
+          if (e.dead || e.spawnT > 0) continue;
+          const r = 0.52 * e.T.scale + 0.05;
+          if (enemyCenter(e, TMP).distanceToSquared(pr.pos) < r * r) {
+            hitEnemy(e, pr);
+            dead = true;
+            break;
+          }
+        }
+        if (!dead && S.ufo && S.ufo.phase !== 'dying') {
+          const u = S.ufo.mesh.position;
+          const dx = (pr.pos.x - u.x) / 3.2;
+          const dy = (pr.pos.y - u.y) / 1.1;
+          const dz = (pr.pos.z - u.z) / 3.2;
+          if (dx * dx + dy * dy + dz * dz < 1) {
+            hitUfo(pr);
+            dead = true;
+          }
+        }
+      } else {
+        // zásah hráče
+        const dxp = pr.pos.x - P.pos.x;
+        const dzp = pr.pos.z - P.pos.z;
+        if (dxp * dxp + dzp * dzp < 0.45 * 0.45 && pr.pos.y > P.y && pr.pos.y < P.y + 1.8) {
+          damagePlayer(pr.dmg, pr.pos);
+          burst(pr.pos, 6, '#7dff5a', 2, 0.05);
+          dead = true;
+          break;
+        }
+        for (const g of girls) {
+          if (g.down > 0) continue;
+          const dx = pr.pos.x - g.pos.x;
+          const dz = pr.pos.z - g.pos.z;
+          if (dx * dx + dz * dz < 0.4 * 0.4 && pr.pos.y < 1.8) {
+            damageGirl(g, pr.dmg);
+            burst(pr.pos, 6, '#7dff5a', 2, 0.05);
+            dead = true;
+            break;
+          }
+        }
+        if (!dead && cow.lift <= 0) {
+          TMP.copy(cow.pos).setY(1);
+          if (TMP.distanceToSquared(pr.pos) < 1.0) {
+            damageCow(pr.dmg * 0.6);
+            dead = true;
+          }
+        }
+      }
+    }
+    if (pr.kind !== 'plasma' && pr.kind !== 'drop' && pr.kind !== 'pellet') pr.mesh.lookAt(TMP2.copy(pr.pos).add(pr.vel));
+    if (dead) {
+      scene.remove(pr.mesh);
+      S.projs.splice(i, 1);
+    }
+  }
+}
+
+/* ================= ufoni ================= */
+
+function spawnEnemy(type, at) {
+  const mesh = makeAlien(type);
+  const T = ALIEN_TYPES[type];
+  const hpScale = 1 + Math.max(0, S.wave - 6) * 0.08;
+  const e = {
+    type,
+    T,
+    mesh,
+    pos: mesh.position,
+    hp: T.hp * hpScale,
+    shootCd: rand(2, 4),
+    hurtT: 0,
+    spawnT: 0.7,
+    target: null,
+    retarget: 0,
+    stuckT: 0,
+    side: Math.random() < 0.5 ? -1 : 1,
+    sideT: 0,
+    t: rand(0, 6),
+    meleeCd: 0,
   };
-  hill(groundY - 120, 26, 0.012, 1.3, sky.h1);
-  hill(groundY - 60, 20, 0.018, 4.1, sky.h2);
+  if (at) e.pos.copy(at);
+  else {
+    const pts = world.spawnPoints.filter((p) => p.distanceTo(P.pos) > 14);
+    e.pos.copy(pick(pts.length ? pts : world.spawnPoints));
+    e.pos.x += rand(-2, 2);
+    e.pos.z += rand(-2, 2);
+  }
+  mesh.scale.setScalar(0.01);
+  scene.add(mesh);
+  S.enemies.push(e);
+  // paprsek při výsadku
+  const beam = new THREE.Mesh(new THREE.CylinderGeometry(0.6, 0.9, 14, 10, 1, true), new THREE.MeshBasicMaterial({ color: '#9dff8a', transparent: true, opacity: 0.45, depthWrite: false }));
+  beam.position.set(e.pos.x, 7, e.pos.z);
+  scene.add(beam);
+  e.beam = beam;
+  if (e.pos.distanceTo(P.pos) < 30) sfx.alienSpawn();
+}
 
-  // plot
-  ctx.strokeStyle = OUTLINE;
-  ctx.lineWidth = 2.5;
-  ctx.fillStyle = sky.night > 0.5 ? '#8a7560' : '#e7c79a';
-  for (let x = 12; x < VW; x += 42) {
-    ctx.beginPath();
-    ctx.roundRect(x - 4, groundY - 46, 8, 46, 3);
-    ctx.fill();
-    ctx.stroke();
+function pickTarget(e) {
+  let best = { kind: 'cow', pos: cow.pos, d: e.pos.distanceTo(cow.pos) };
+  const dp = e.pos.distanceTo(P.pos);
+  if (dp < 9 && dp < best.d) best = { kind: 'player', pos: P.pos, d: dp };
+  for (const g of girls) {
+    if (g.down > 0) continue;
+    const d = e.pos.distanceTo(g.pos);
+    if (d < 5 && d < best.d) best = { kind: 'girl', girl: g, pos: g.pos, d };
   }
-  for (const yy of [groundY - 38, groundY - 22]) {
-    ctx.beginPath();
-    ctx.roundRect(-5, yy, VW + 10, 7, 3);
-    ctx.fill();
-    ctx.stroke();
-  }
+  return best;
+}
 
-  // tráva
-  ctx.fillStyle = sky.grass;
-  ctx.beginPath();
-  ctx.moveTo(-10, groundY);
-  for (let x = -10; x <= VW + 10; x += 20) ctx.lineTo(x, groundY + Math.sin(x * 0.07) * 2);
-  ctx.lineTo(VW + 10, VH + 20);
-  ctx.lineTo(-10, VH + 20);
-  ctx.fill();
-  ctx.strokeStyle = OUTLINE;
-  ctx.lineWidth = 3;
-  ctx.beginPath();
-  ctx.moveTo(-10, groundY);
-  for (let x = -10; x <= VW + 10; x += 20) ctx.lineTo(x, groundY + Math.sin(x * 0.07) * 2);
-  ctx.stroke();
-  ctx.lineWidth = 2;
-  ctx.strokeStyle = 'rgba(20,60,20,0.45)';
-  for (const t of scenery.tufts) {
-    const yy = groundY + 14 + (t.x * 7) % 14;
-    ctx.beginPath();
-    ctx.moveTo(t.x - 3, yy);
-    ctx.lineTo(t.x - 5, yy - t.h);
-    ctx.moveTo(t.x, yy);
-    ctx.lineTo(t.x, yy - t.h - 2);
-    ctx.moveTo(t.x + 3, yy);
-    ctx.lineTo(t.x + 5, yy - t.h);
-    ctx.stroke();
-  }
-  for (const f of scenery.flowers) {
-    const yy = groundY + 20 + (f.x * 3) % 10;
-    ctx.fillStyle = f.c;
-    for (let k = 0; k < 5; k++) {
-      const a = (k / 5) * Math.PI * 2;
-      ctx.beginPath();
-      ctx.arc(f.x + Math.cos(a) * 3.2, yy + Math.sin(a) * 3.2, 2.4, 0, Math.PI * 2);
-      ctx.fill();
+function updateEnemies(dt) {
+  const tsMul = 1;
+  for (let i = S.enemies.length - 1; i >= 0; i--) {
+    const e = S.enemies[i];
+    const T = e.T;
+    e.t += dt;
+    if (e.spawnT > 0) {
+      e.spawnT -= dt;
+      const k = 1 - Math.max(0, e.spawnT) / 0.7;
+      e.mesh.scale.setScalar(Math.max(0.01, k));
+      e.beam.material.opacity = 0.45 * (1 - k);
+      if (e.spawnT <= 0) {
+        scene.remove(e.beam);
+        e.beam.geometry.dispose();
+        e.beam = null;
+        e.mesh.scale.setScalar(1);
+      }
+      continue;
     }
-    ctx.fillStyle = '#ffb000';
-    ctx.beginPath();
-    ctx.arc(f.x, yy, 1.8, 0, Math.PI * 2);
-    ctx.fill();
+    e.retarget -= dt;
+    if (e.retarget <= 0 || !e.target) {
+      e.target = pickTarget(e);
+      e.retarget = 0.5;
+    }
+    const tg = e.target;
+    const dx = tg.pos.x - e.pos.x;
+    const dz = tg.pos.z - e.pos.z;
+    const dist = Math.hypot(dx, dz) || 1;
+    const reach = tg.kind === 'cow' ? 1.3 + 0.45 * T.scale : 1.0 + 0.3 * T.scale;
+    let vx = 0;
+    let vz = 0;
+    if (dist > reach && !(tg.kind === 'cow' && cow.lift > 0.05)) {
+      vx = (dx / dist) * T.speed;
+      vz = (dz / dist) * T.speed;
+      // obcházení překážek
+      if (e.sideT > 0) {
+        e.sideT -= dt;
+        vx += (-dz / dist) * e.side * T.speed * 0.9;
+        vz += (dx / dist) * e.side * T.speed * 0.9;
+      }
+      // rozestupy
+      for (const o of S.enemies) {
+        if (o === e) continue;
+        const ox = e.pos.x - o.pos.x;
+        const oz = e.pos.z - o.pos.z;
+        const od = ox * ox + oz * oz;
+        if (od < 1.4 && od > 1e-4) {
+          vx += (ox / od) * 0.6;
+          vz += (oz / od) * 0.6;
+        }
+      }
+    }
+    const bx = e.pos.x;
+    const bz = e.pos.z;
+    e.pos.x += vx * dt * tsMul;
+    e.pos.z += vz * dt * tsMul;
+    const hit = resolveCircle(e.pos, 0.42 * T.scale, colliders);
+    const moved = Math.hypot(e.pos.x - bx, e.pos.z - bz);
+    if (hit && vx * vx + vz * vz > 0.1 && moved < T.speed * dt * 0.4) {
+      e.stuckT += dt;
+      if (e.stuckT > 0.25) {
+        e.sideT = 1.2;
+        e.stuckT = 0;
+        if (Math.random() < 0.3) e.side *= -1;
+      }
+    } else e.stuckT = 0;
+
+    e.mesh.rotation.y = Math.atan2(dx, dz);
+    const inner = e.mesh.userData.inner;
+    const walking = vx * vx + vz * vz > 0.1;
+    inner.position.y = walking ? Math.abs(Math.sin(e.t * T.speed * 2.2)) * 0.25 * T.scale : 0;
+    inner.scale.set(T.scale, T.scale * (1 + Math.sin(e.t * 6) * 0.04), T.scale);
+
+    // útok zblízka
+    if (dist <= reach + 0.1) {
+      if (tg.kind === 'cow') {
+        if (cow.lift <= 0.05) {
+          damageCow(T.dmgCow * dt);
+          if (Math.random() < dt * 6) burst(TMP.copy(cow.pos).setY(1.1), 2, ['#9dff8a', '#ffffff'], 2, 0.05, 2, 0.4);
+        }
+      } else {
+        e.meleeCd -= dt;
+        if (e.meleeCd <= 0) {
+          e.meleeCd = 0.8;
+          if (tg.kind === 'player') damagePlayer(8 * T.scale, e.pos);
+          else damageGirl(tg.girl, 8 * T.scale);
+          sfx.zap();
+        }
+      }
+    }
+
+    // střelba na hráče
+    if (T.shoots) {
+      e.shootCd -= dt;
+      const dp = e.pos.distanceTo(P.pos);
+      if (e.shootCd <= 0 && dp < 24 && dp > 2.5) {
+        e.shootCd = rand(2.2, 3.8) * (e.type === 'tank' ? 1.2 : 1);
+        const from = enemyCenter(e, v3());
+        from.y += 0.1;
+        const aim = TMP.set(P.pos.x, 1.2 + P.y, P.pos.z).sub(from).normalize();
+        const n = e.type === 'tank' ? 3 : 1;
+        for (let k = 0; k < n; k++) {
+          const dir = aim.clone();
+          const yawOff = (k - (n - 1) / 2) * 0.12 + rand(-0.05, 0.05);
+          dir.applyAxisAngle(THREE.Object3D.DEFAULT_UP, yawOff);
+          dir.y += rand(-0.03, 0.03);
+          spawnProj('enemy', from, dir.normalize(), 13 + Math.min(S.wave, 10) * 0.4, 'plasma', e.type === 'tank' ? 10 : 7, 0);
+        }
+        if (dp < 30) sfx.zap();
+      }
+    }
+
+    // záblesk po zásahu
+    e.hurtT = Math.max(0, e.hurtT - dt);
+    e.mesh.userData.bodyMat.emissive.setScalar(e.hurtT > 0 ? 0.8 : 0);
   }
 }
 
-function drawSplat(s) {
-  ctx.save();
-  ctx.globalAlpha = Math.min(1, s.life);
-  ctx.translate(s.x, s.y);
-  ctx.scale(1, 0.42);
-  if (s.poop) {
-    ctx.fillStyle = '#5a3a1e';
-    ctx.beginPath();
-    ctx.ellipse(0, 0, s.r * 1.3, s.r, 0, 0, Math.PI * 2);
-    ctx.fill();
-  } else {
-    ctx.fillStyle = 'rgba(255,255,255,0.92)';
-    ctx.beginPath();
-    for (let k = 0; k < 10; k++) {
-      const a = (k / 10) * Math.PI * 2;
-      const rr = s.r * (1.25 + 0.35 * Math.sin(s.seed + k * 2.1));
-      ctx.lineTo(Math.cos(a) * rr * 1.3, Math.sin(a) * rr);
-    }
-    ctx.closePath();
-    ctx.fill();
-    ctx.fillStyle = s.golden ? '#ffb000' : '#ffc21a';
-    ctx.beginPath();
-    ctx.arc(0, 0, s.r * 0.6, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.fillStyle = 'rgba(255,255,255,0.6)';
-    ctx.beginPath();
-    ctx.arc(-s.r * 0.2, -s.r * 0.2, s.r * 0.18, 0, Math.PI * 2);
-    ctx.fill();
+function hitEnemy(e, pr) {
+  e.hp -= pr.dmg;
+  e.hurtT = 0.08;
+  TMP.copy(pr.vel).setY(0).normalize();
+  e.pos.addScaledVector(TMP, 0.12 / e.T.scale);
+  burst(pr.pos, 5, ['#fff8ec', '#ffc21a', e.T.color], 3, 0.06);
+  if (pr.owner === 'player') {
+    P.hits++;
+    sfx.hit();
   }
-  ctx.restore();
+  if (e.hp <= 0) killEnemy(e, pr.owner);
+  else if (pr.owner === 'player') hitmarker(false);
 }
 
-function render() {
-  ctx.setTransform(dpr * scale, 0, 0, dpr * scale, 0, 0);
-  if (G.shake > 0) {
-    const m = G.shake * 18;
-    ctx.translate(rand(-m, m), rand(-m, m));
+function killEnemy(e, owner) {
+  e.dead = true;
+  const c = enemyCenter(e, v3());
+  burst(c, 18, [e.T.color, e.T.belly, '#ffffff'], 6, 0.12, 9, 1);
+  addDecal(e.pos.x, e.pos.z, e.T.color);
+  scene.remove(e.mesh);
+  if (e.beam) scene.remove(e.beam);
+  S.enemies.splice(S.enemies.indexOf(e), 1);
+  sfx.alienDie();
+  S.score += e.T.score;
+  if (owner === 'player') {
+    P.kills++;
+    hitmarker(true);
+  } else if (owner === 'ally') {
+    const g = pick(girls);
+    bark(g, ['Mám ho!', 'Jeden ufoun dole!', 'Bětku nedostanete!', 'Vajíčko do čela!', 'Hezká trefa, co?']);
   }
-  const sky = skyAt(G.skyPhase);
-  drawScenery(sky);
+  const r = Math.random();
+  if (r < 0.08) dropPickup(e.pos, 'health');
+  else if (r < 0.2) dropPickup(e.pos, 'ammo');
+}
 
-  for (const s of G.splats) drawSplat(s);
+/* ================= UFO ================= */
 
-  // krávy na obláčcích
-  for (const c of G.cows) {
-    const bob = Math.sin(G.t * 1.6 + c.pitch * 3) * 3;
-    drawCloud(ctx, c.x, c.y + 12 + bob, 160, 0.97);
-    drawCow(ctx, {
-      x: c.x,
-      y: c.y + bob,
-      s: 0.9,
-      dir: c.dir,
-      walk: c.walk,
-      squash: c.squash,
-      blink: c.blink > 0,
-      moo: c.moo,
-      tail: c.tail,
-      skin: c.skin,
-      t: G.t,
-    });
-    if (c.moo > 0.4) {
-      ctx.save();
-      ctx.globalAlpha = Math.min(1, (c.moo - 0.4) * 3);
-      ctx.font = '700 20px Fredoka, system-ui, sans-serif';
-      ctx.textAlign = 'center';
-      ctx.lineWidth = 4;
-      ctx.strokeStyle = OUTLINE;
-      ctx.fillStyle = '#fff';
-      const tx = c.x + c.dir * 70;
-      const ty = c.y - 112 - (1 - c.moo) * 20;
-      ctx.strokeText('Búúú!', tx, ty);
-      ctx.fillText('Búúú!', tx, ty);
-      ctx.restore();
+function spawnUfo() {
+  const mesh = makeUfo();
+  mesh.position.set(rand(-30, 30), 24, -55);
+  scene.add(mesh);
+  const hp = 32 + S.wave * 3;
+  S.ufo = { mesh, hp, max: hp, phase: 'arrive', progress: 0, dropCd: 6, hurtT: 0, dieT: 0 };
+  banner('Pozor, UFO!', 'Chce unést Bětku – sestřel ho!');
+  girls.forEach((g) => (g.barkCd = 0));
+  bark(pick(girls), ['Nahoře! Talíř!', 'To je UFO! Střílej nahoru!', 'Bětku si neodnesou!']);
+  ufoHum(true);
+}
+
+function hitUfo(pr) {
+  const u = S.ufo;
+  u.hp -= pr.dmg;
+  u.hurtT = 0.08;
+  burst(pr.pos, 5, ['#ffffff', '#c9ced6', '#ffe27a'], 3, 0.07);
+  if (pr.owner === 'player') {
+    P.hits++;
+    hitmarker(false);
+    sfx.hit();
+  }
+  if (u.hp <= 0 && u.phase !== 'dying') {
+    u.phase = 'dying';
+    u.dieT = 1.4;
+    u.mesh.userData.beam.visible = false;
+    ufoHum(false);
+    if (pr.owner === 'player') hitmarker(true);
+  }
+}
+
+function updateUfo(dt) {
+  const u = S.ufo;
+  if (!u) {
+    cow.lift = Math.max(0, cow.lift - dt * 0.5);
+    return;
+  }
+  const m = u.mesh;
+  const ud = m.userData;
+  ud.lights.forEach((l, i) => (l.visible = Math.floor(S.t * 8 + i) % 2 === 0));
+  m.rotation.y += dt * 0.8;
+  u.hurtT = Math.max(0, u.hurtT - dt);
+  if (u.phase === 'arrive') {
+    TMP.set(cow.pos.x, 10, cow.pos.z).sub(m.position);
+    const d = TMP.length();
+    if (d < 0.5) {
+      u.phase = 'beam';
+      ud.beam.visible = true;
+    } else m.position.addScaledVector(TMP.normalize(), Math.min(d, 14 * dt));
+  } else if (u.phase === 'beam') {
+    m.position.x += (cow.pos.x - m.position.x) * dt * 2;
+    m.position.z += (cow.pos.z - m.position.z) * dt * 2;
+    m.position.y = 10 + Math.sin(S.t * 2) * 0.2;
+    u.progress = Math.min(1, u.progress + dt / 26);
+    cow.lift = u.progress;
+    ud.beam.scale.set(1, 10, 1);
+    ud.beam.position.y = -5;
+    ud.beamMat.opacity = 0.2 + Math.sin(S.t * 10) * 0.06;
+    u.dropCd -= dt;
+    if (u.dropCd <= 0 && S.enemies.length < 14) {
+      u.dropCd = 7;
+      const at = v3(m.position.x + rand(-4, 4), 0, m.position.z + rand(-4, 4));
+      resolveCircle(at, 0.5, colliders);
+      spawnEnemy('grunt', at);
+    }
+    if (u.progress >= 1) gameOver('ufo');
+  } else if (u.phase === 'dying') {
+    u.dieT -= dt;
+    m.rotation.z += dt * 2;
+    m.position.y -= dt * 4;
+    if (Math.random() < dt * 20) burst(m.position, 3, ['#ff8a3d', '#ffe27a', '#555555'], 5, 0.2, 3, 1);
+    if (u.dieT <= 0) {
+      burst(m.position, 60, ['#ff8a3d', '#ffe27a', '#c9ced6', '#7dff5a'], 12, 0.25, 6, 1.6);
+      sfx.boom();
+      scene.remove(m);
+      S.ufo = null;
+      S.score += 2000;
+      banner('UFO sestřeleno!', '+2000');
+      girls.forEach((g) => (g.barkCd = 0));
+      bark(pick(girls), ['Jóóó! To byla rána!', 'Bětka zůstává doma!', 'A neopovažujte se vrátit!']);
+      sfx.moo(1.1);
     }
   }
+  for (const l of ud.lights) l.scale.setScalar(u.hurtT > 0 ? 0.3 : 0.16);
+}
 
-  // předměty
-  for (const it of G.items) {
-    if (it.kind === 'egg' || it.kind === 'golden') drawEgg(ctx, it.x, it.y, it.r, it.rot, it.kind, it.t, it.tint);
-    else if (it.kind === 'poop') drawPoop(ctx, it.x, it.y, it.r, it.rot, it.t);
-    else drawPower(ctx, it.x, it.y, it.r, it.power, it.t);
+/* ================= kráva ================= */
+
+function damageCow(d) {
+  if (S.state !== 'play') return;
+  cow.hp -= d;
+  cow.attacked = 0.3;
+  if (cow.mooCd <= 0) {
+    cow.mooCd = 3.5;
+    sfx.moo(rand(1.1, 1.25), 0.7);
   }
-
-  // košík
-  if (G.state !== 'menu') {
-    const b = G.basket;
-    ctx.fillStyle = 'rgba(0,0,0,0.18)';
-    ctx.beginPath();
-    ctx.ellipse(b.x, groundY + 4, b.w * 0.45, 6, 0, 0, Math.PI * 2);
-    ctx.fill();
-    drawBasket(ctx, b.x, rimY, b.w, BASKET_H, {
-      eggs: b.eggs,
-      goldenIn: b.goldenIn,
-      dirty: b.dirty,
-      bump: b.bump,
-      t: G.t,
-      magnet: G.power.magnet > 0,
-    });
+  if (cow.alertCd <= 0) {
+    cow.alertCd = 8;
+    toast('🐮 <b>Bětka je v ohrožení!</b>');
   }
+  if (cow.hp <= 0) {
+    cow.hp = 0;
+    gameOver('cow');
+  }
+}
 
-  // částice
-  for (const p of G.parts) {
-    const a = 1 - p.life / p.max;
-    ctx.globalAlpha = a;
-    ctx.fillStyle = p.color;
-    if (p.type === 'star') star(ctx, p.x, p.y, p.size);
-    else if (p.type === 'shell') {
-      ctx.save();
-      ctx.translate(p.x, p.y);
-      ctx.rotate(p.rot);
-      ctx.beginPath();
-      ctx.moveTo(-p.size, 0);
-      ctx.lineTo(0, -p.size * 0.8);
-      ctx.lineTo(p.size, p.size * 0.3);
-      ctx.closePath();
-      ctx.fill();
-      ctx.strokeStyle = OUTLINE;
-      ctx.lineWidth = 1.5;
-      ctx.stroke();
-      ctx.restore();
+function dropPickup(at, kind, pop = false) {
+  const mesh = makePickup(kind);
+  mesh.position.set(at.x, pop ? 1 : 0.5, at.z);
+  scene.add(mesh);
+  const pk = { mesh, pos: mesh.position, kind, life: 30, vy: pop ? 3 : 0, vx: pop ? rand(-2, 2) : 0, vz: pop ? rand(-2, 2) : 0 };
+  S.pickups.push(pk);
+}
+
+function updateCow(dt) {
+  cow.mooCd -= dt;
+  cow.alertCd -= dt;
+  cow.attacked = Math.max(0, cow.attacked - dt);
+  if (cow.lift <= 0.02) {
+    const dx = cow.target.x - cow.pos.x;
+    const dz = cow.target.z - cow.pos.z;
+    const d = Math.hypot(dx, dz);
+    if (d < 0.3) {
+      const a = rand(0, Math.PI * 2);
+      const r = rand(0, 3.2);
+      cow.target.set(Math.cos(a) * r, 0, Math.sin(a) * r);
     } else {
-      ctx.beginPath();
-      ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
-      ctx.fill();
+      const sp = cow.attacked > 0 ? 1.8 : 0.8;
+      cow.pos.x += (dx / d) * sp * dt;
+      cow.pos.z += (dz / d) * sp * dt;
+      const want = Math.atan2(dx, dz);
+      let diff = want - cow.mesh.rotation.y;
+      diff = Math.atan2(Math.sin(diff), Math.cos(diff));
+      cow.mesh.rotation.y += diff * Math.min(1, dt * 4);
+    }
+    cow.walking = d >= 0.3;
+  } else cow.walking = false;
+  cow.mesh.position.set(cow.pos.x, cow.lift * 8.2, cow.pos.z);
+  cow.mesh.rotation.z = cow.lift > 0.02 ? Math.sin(S.t * 3) * 0.15 : 0;
+  animateCow(cow.mesh, S.t, cow.walking || cow.lift > 0.02);
+
+  if (S.state === 'play') {
+    cow.layT -= dt;
+    if (cow.layT <= 0 && cow.lift <= 0.02) {
+      cow.layCount++;
+      const lowAmmo = P.ammo[1].reserve + P.ammo[1].mag < 20;
+      const kind = cow.layCount % 3 === 0 || (lowAmmo && cow.layCount % 2 === 0) ? 'ammo' : 'health';
+      const rear = v3(-Math.sin(cow.mesh.rotation.y) * 0.9, 0, -Math.cos(cow.mesh.rotation.y) * 0.9).add(cow.pos);
+      dropPickup(rear, kind, true);
+      sfx.plop();
+      cow.layT = P.hp < 50 ? 9 : 14;
     }
   }
-  ctx.globalAlpha = 1;
+}
 
-  // létající texty
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
-  for (const t of G.texts) {
-    const k = t.life / t.max;
-    ctx.globalAlpha = 1 - k * k;
-    const sc = k < 0.15 ? 0.6 + (k / 0.15) * 0.5 : 1.1 - Math.min(0.1, (k - 0.15) * 0.3);
-    ctx.font = `700 ${Math.round(t.size * sc)}px Fredoka, system-ui, sans-serif`;
-    ctx.lineWidth = 4;
-    ctx.strokeStyle = OUTLINE;
-    ctx.strokeText(t.text, t.x, t.y);
-    ctx.fillStyle = t.color;
-    ctx.fillText(t.text, t.x, t.y);
+function updatePickups(dt) {
+  for (let i = S.pickups.length - 1; i >= 0; i--) {
+    const pk = S.pickups[i];
+    pk.life -= dt;
+    if (pk.vy !== 0 || pk.pos.y > 0.5) {
+      pk.vy -= 12 * dt;
+      pk.pos.x += pk.vx * dt;
+      pk.pos.z += pk.vz * dt;
+      pk.pos.y += pk.vy * dt;
+      if (pk.pos.y <= 0.5) {
+        pk.pos.y = 0.5;
+        pk.vy = 0;
+      }
+      resolveCircle(pk.pos, 0.3, colliders);
+    } else {
+      pk.mesh.position.y = 0.5 + Math.sin(S.t * 3 + i) * 0.08;
+    }
+    pk.mesh.rotation.y += dt * 2;
+    pk.mesh.visible = pk.life > 5 || Math.floor(pk.life * 6) % 2 === 0;
+    if (pk.life <= 0) {
+      scene.remove(pk.mesh);
+      S.pickups.splice(i, 1);
+    }
   }
-  ctx.globalAlpha = 1;
+}
 
-  // efekty přes celou obrazovku
-  if (G.power.slow > 0) {
-    ctx.fillStyle = 'rgba(190,230,255,0.12)';
-    ctx.fillRect(-20, -20, VW + 40, VH + 40);
+/* ================= parťačky ================= */
+
+function damageGirl(g, d) {
+  if (g.down > 0 || S.state !== 'play') return;
+  g.hp -= d;
+  if (g.hp <= 0) {
+    g.hp = 0;
+    g.down = 12;
+    toast(`<b style="color:${g.color}">${g.name}</b> je k zemi! Dojdi k ní, ať vstane dřív.`);
+  } else if (g.hp < 25) bark(g, ['Au! Potřebuju pomoc!', 'Ty zelený potvory!', 'Kryj mě!']);
+}
+
+function updateGirls(dt) {
+  girls.forEach((g, i) => {
+    g.barkCd -= dt;
+    if (g.down > 0) {
+      const near = Math.hypot(g.pos.x - P.pos.x, g.pos.z - P.pos.z) < 2.4;
+      g.down -= dt * (near ? 4 : 1);
+      if (g.down <= 0) {
+        g.down = 0;
+        g.hp = g.max * 0.6;
+        g.barkCd = 0;
+        bark(g, ['Jsem zpátky!', 'Díky! Jdeme na ně!', 'To nic, jen škrábnutí.']);
+      }
+      animateGirl(g.mesh, S.t, false, false, true);
+      return;
+    }
+    // hlídková pozice u Bětky
+    const a = g.baseAngle + Math.sin(S.t * 0.15 + i * 2) * 0.9;
+    const gx = cow.pos.x + Math.cos(a) * 5.5;
+    const gz = cow.pos.z + Math.sin(a) * 5.5;
+    const dx = gx - g.pos.x;
+    const dz = gz - g.pos.z;
+    const d = Math.hypot(dx, dz);
+    g.walking = d > 0.8;
+    if (g.walking) {
+      g.pos.x += (dx / d) * 3.8 * dt;
+      g.pos.z += (dz / d) * 3.8 * dt;
+      resolveCircle(g.pos, 0.35, colliders);
+    }
+    // cíl
+    let target = null;
+    let best = 26;
+    for (const e of S.enemies) {
+      if (e.spawnT > 0) continue;
+      const de = e.pos.distanceTo(g.pos);
+      if (de < best) {
+        best = de;
+        target = e;
+      }
+    }
+    let ufoTarget = false;
+    if (!target && S.ufo && S.ufo.phase === 'beam') ufoTarget = true;
+    g.aiming = !!target || ufoTarget;
+    let face = g.walking ? Math.atan2(dx, dz) : g.mesh.rotation.y;
+    if (target) face = Math.atan2(target.pos.x - g.pos.x, target.pos.z - g.pos.z);
+    else if (ufoTarget) face = Math.atan2(S.ufo.mesh.position.x - g.pos.x, S.ufo.mesh.position.z - g.pos.z);
+    let diff = face - g.mesh.rotation.y;
+    diff = Math.atan2(Math.sin(diff), Math.cos(diff));
+    g.mesh.rotation.y += diff * Math.min(1, dt * 8);
+
+    g.fireCd -= dt;
+    if (g.fireCd <= 0 && (target || ufoTarget) && S.state === 'play' && Math.abs(diff) < 0.3) {
+      g.fireCd = rand(0.45, 0.85);
+      const from = v3(g.pos.x + Math.sin(g.mesh.rotation.y) * 0.5, 1.15, g.pos.z + Math.cos(g.mesh.rotation.y) * 0.5);
+      const aim = target ? enemyCenter(target, v3()) : S.ufo.mesh.position.clone();
+      const dist = aim.distanceTo(from);
+      const err = 0.15 + dist * 0.025;
+      aim.x += rand(-err, err);
+      aim.y += rand(-err, err) + dist * dist * 0.0022;
+      aim.z += rand(-err, err);
+      spawnProj('ally', from, aim.sub(from).normalize(), 36, 'ally', 0.8, 5);
+    }
+    g.mesh.position.set(g.pos.x, 0, g.pos.z);
+    animateGirl(g.mesh, S.t, g.walking, g.aiming, false);
+  });
+}
+
+/* ================= vlny ================= */
+
+function buildWave(n) {
+  const q = [];
+  const grunts = 3 + n * 2;
+  const fast = n >= 2 ? Math.min(2 + n, 12) : 0;
+  const tanks = n >= 3 ? Math.floor((n - 1) / 2) : 0;
+  for (let i = 0; i < grunts; i++) q.push('grunt');
+  for (let i = 0; i < fast; i++) q.push('fast');
+  for (let i = 0; i < tanks; i++) q.push('tank');
+  for (let i = q.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [q[i], q[j]] = [q[j], q[i]];
   }
-  if (G.frenzy > 0) {
-    ctx.strokeStyle = `rgba(255,207,58,${0.35 + Math.sin(G.t * 12) * 0.25})`;
-    ctx.lineWidth = 12;
-    ctx.strokeRect(0, 0, VW, VH);
+  return q;
+}
+
+function startWave(n) {
+  S.wave = n;
+  S.queue = buildWave(n);
+  S.spawnCd = 1.2;
+  S.waveActive = true;
+  sfx.horn();
+  if (n % 5 === 0) spawnUfo();
+  else {
+    const subs = ['Ufoni jdou po Bětce!', 'Další várka zelených!', 'Bučí to!', 'Nabij vajíčkomet!', 'Drž se u Bětky!'];
+    banner(`Vlna ${n}`, n === 1 ? 'Chraň Bětku!' : pick(subs));
   }
-  if (G.hurt > 0) {
-    const vg = ctx.createRadialGradient(VW / 2, VH / 2, VH * 0.25, VW / 2, VH / 2, VH * 0.75);
-    vg.addColorStop(0, 'rgba(255,60,60,0)');
-    vg.addColorStop(1, `rgba(255,60,60,${G.hurt})`);
-    ctx.fillStyle = vg;
-    ctx.fillRect(-20, -20, VW + 40, VH + 40);
+  if (n === 2) toast('Fialoví <b>skokani</b> jsou rychlí!');
+  if (n === 3) toast('Oranžoví <b>tanci</b> vydrží hodně ran!');
+}
+
+function updateWaves(dt) {
+  if (S.state !== 'play') return;
+  if (S.waveActive) {
+    S.spawnCd -= dt;
+    const maxAlive = Math.min(16, 6 + S.wave * 1.5);
+    if (S.queue.length && S.spawnCd <= 0 && S.enemies.length < maxAlive) {
+      spawnEnemy(S.queue.shift());
+      S.spawnCd = Math.max(0.5, 2.1 - S.wave * 0.13);
+    }
+    if (!S.queue.length && !S.enemies.length && !S.ufo) {
+      S.waveActive = false;
+      S.breakT = 6;
+      const bonus = 250 * S.wave + Math.round(cow.hp) * 5;
+      S.score += bonus;
+      cow.hp = Math.min(cow.max, cow.hp + 35);
+      banner('Vlna odražena!', `+${bonus} • Bětka se zotavuje`);
+      sfx.level();
+      setTimeout(() => sfx.moo(1), 400);
+      girls.forEach((g) => {
+        if (g.down <= 0) g.hp = Math.min(g.max, g.hp + 30);
+        g.barkCd = 0;
+      });
+      bark(pick(girls), ['Tak to bylo dobrý!', 'Dejte si pauzu, za chvíli jsou zpátky.', 'Bětko, jsi v pořádku?', 'Nabíjím!']);
+    }
+  } else {
+    S.breakT -= dt;
+    if (S.breakT <= 0) startWave(S.wave + 1);
   }
+}
+
+/* ================= běh hry ================= */
+
+function clearEntities() {
+  for (const e of S.enemies) {
+    scene.remove(e.mesh);
+    if (e.beam) scene.remove(e.beam);
+  }
+  for (const p of S.projs) scene.remove(p.mesh);
+  for (const p of S.pickups) scene.remove(p.mesh);
+  for (const d of S.decals) scene.remove(d.mesh);
+  if (S.ufo) scene.remove(S.ufo.mesh);
+  S.enemies = [];
+  S.projs = [];
+  S.pickups = [];
+  S.decals = [];
+  S.ufo = null;
+  ufoHum(false);
+}
+
+function resetGame() {
+  clearEntities();
+  S.score = 0;
+  S.wave = 0;
+  S.queue = [];
+  S.waveActive = false;
+  S.breakT = 2.5;
+  cow.pos.set(0, 0, 0);
+  cow.target.set(0, 0, 0);
+  cow.hp = cow.max;
+  cow.lift = 0;
+  cow.layT = 8;
+  cow.layCount = 0;
+  girls.forEach((g) => {
+    g.hp = g.max;
+    g.down = 0;
+    g.pos.set(Math.cos(g.baseAngle) * 5.5, 0, Math.sin(g.baseAngle) * 5.5);
+    g.barkCd = 2;
+  });
+  Object.assign(P, { y: 0, vy: 0, yaw: 0, pitch: -0.08, hp: P.max, weapon: 0, reloadT: 0, fireCd: 0.3, swapT: 0, recoil: 0, kills: 0, shots: 0, hits: 0, eggsEaten: 0, hurtT: 0 });
+  P.pos.set(0, 0, 13);
+  P.vel.set(0, 0, 0);
+  P.ammo = WEAPONS.map((w) => ({ mag: w.mag, reserve: w.reserve }));
+  viewGuns.forEach((g, k) => (g.visible = k === 0));
+  hud.c = {};
+}
+
+function startGame() {
+  initAudio();
+  resetGame();
+  S.state = 'play';
+  showScreen(null);
+  $('hud').hidden = false;
+  $('touch').hidden = !isTouch;
+  requestLock();
+  sfx.moo(1);
+  toast(`<b style="color:${girls[0].color}">Kája:</b> Ufoni chtějí Bětku! Držíme se u ní!`);
+}
+
+function gameOver(reason) {
+  if (S.state !== 'play') return;
+  S.state = 'over';
+  ufoHum(false);
+  input.fire = false;
+  if (document.pointerLockElement) document.exitPointerLock?.();
+  $('hud').hidden = true;
+  $('touch').hidden = true;
+  const isBest = S.score > save.best;
+  if (isBest) save.best = S.score;
+  save.bestWave = Math.max(save.bestWave, S.wave);
+  persist();
+  sfx.over();
+  const t = {
+    player: ['Ufoni tě sejmuli!', 'Příště se víc kryj za balíky sena.'],
+    cow: ['Bětka to nezvládla…', 'Nepouštěj ufony až k ní – střílej je cestou.'],
+    ufo: ['Ufoni unesli Bětku!', 'Na UFO střílej hned, jak přiletí.'],
+  }[reason];
+  $('over-title').textContent = t[0];
+  $('over-reason').textContent = t[1];
+  $('over-score').textContent = S.score;
+  $('over-best-badge').hidden = !isBest || S.score === 0;
+  $('over-wave').textContent = S.wave;
+  $('over-kills').textContent = P.kills;
+  $('over-acc').textContent = P.shots ? Math.round((P.hits / P.shots) * 100) + ' %' : '–';
+  $('over-eggs').textContent = P.eggsEaten;
+  S.overT = 0;
+  setTimeout(() => showScreen('scr-over'), 900);
+}
+
+function pause() {
+  if (S.state !== 'play') return;
+  S.state = 'paused';
+  input.fire = false;
+  input.keys.clear();
+  ufoHum(false);
+  showScreen('scr-pause');
+}
+function resume() {
+  if (S.state !== 'paused') return;
+  initAudio();
+  S.state = 'play';
+  if (S.ufo && S.ufo.phase !== 'dying') ufoHum(true);
+  showScreen(null);
+  requestLock();
+  last = performance.now();
+}
+
+function goMenu() {
+  clearEntities();
+  S.state = 'menu';
+  $('hud').hidden = true;
+  $('touch').hidden = true;
+  cow.lift = 0;
+  cow.hp = cow.max;
+  girls.forEach((g) => (g.down = 0));
+  showScreen('scr-menu');
 }
 
 /* ================= smyčka ================= */
 
 let last = performance.now();
+let menuAngle = 0;
 function frame(now) {
   const dt = Math.min(0.05, (now - last) / 1000);
   last = now;
-  update(dt);
-  render();
-  if (G.state === 'play') updateHud();
+  if (S.state !== 'paused') {
+    S.t += dt;
+    for (const c of world.clouds) {
+      c.position.x += dt * 1.2;
+      if (c.position.x > 110) c.position.x = -110;
+    }
+    if (S.state === 'play') {
+      updatePlayer(dt);
+      updateWaves(dt);
+    } else if (S.state === 'menu') {
+      menuAngle += dt * 0.12;
+      camera.position.set(Math.sin(menuAngle) * 11, 3.4, Math.cos(menuAngle) * 11);
+      camera.lookAt(0, 1.1, 0);
+      viewGuns.forEach((g) => (g.visible = false));
+    } else if (S.state === 'over') {
+      S.overT += dt;
+      camera.position.y += (5 - camera.position.y) * dt;
+      camera.lookAt(cow.pos.x, 1 + cow.lift * 8, cow.pos.z);
+      viewGuns.forEach((g) => (g.visible = false));
+    }
+    updateCow(dt);
+    updateGirls(dt);
+    updateEnemies(dt);
+    updateUfo(dt);
+    updateProjs(dt);
+    updatePickups(dt);
+    updateParticles(dt);
+    for (let i = S.decals.length - 1; i >= 0; i--) {
+      const d = S.decals[i];
+      d.life -= dt;
+      if (d.life < 1) d.mesh.scale.setScalar(Math.max(0.01, d.life));
+      if (d.life <= 0) {
+        scene.remove(d.mesh);
+        S.decals.splice(i, 1);
+      }
+    }
+  }
+  if (S.state === 'play') updateHud();
+  renderer.render(scene, camera);
   requestAnimationFrame(frame);
 }
 
 /* ================= obrazovky ================= */
 
-const SCREENS = ['scr-menu', 'scr-pause', 'scr-over', 'scr-shop', 'scr-help'];
-let shopReturn = 'scr-menu';
-
+const SCREENS = ['scr-menu', 'scr-pause', 'scr-over', 'scr-help', 'scr-settings'];
+let settingsReturn = 'scr-menu';
 function showScreen(id) {
   for (const s of SCREENS) $(s).hidden = s !== id;
-  if (id === 'scr-menu') refreshMenu();
-}
-function anyModalOpen() {
-  return ['scr-shop', 'scr-help', 'scr-pause'].some((s) => !$(s).hidden);
-}
-
-function refreshMenu() {
-  $('menu-coins').textContent = save.coins;
-  $('menu-best').textContent = save.best;
-  const label = save.sound ? 'Zvuk: zap.' : 'Zvuk: vyp.';
-  $('btn-sound').textContent = label;
-  $('btn-pause-sound').textContent = label;
-  $('btn-sound').setAttribute('aria-pressed', String(save.sound));
+  if (id === 'scr-menu') {
+    $('menu-best').textContent = save.best;
+    $('menu-wave').textContent = `vlna ${save.bestWave}`;
+  }
 }
 
-function goMenu() {
-  G.state = 'menu';
-  $('hud').hidden = true;
-  G.items = [];
-  G.level = 1;
-  G.frenzy = 0;
-  G.power = { slow: 0, magnet: 0, big: 0 };
-  const main = G.cows[0];
-  main.skin = save.skin;
-  G.cows = [main];
-  resize();
-  showScreen('scr-menu');
+function openSettings(from) {
+  settingsReturn = from;
+  $('set-sound').checked = save.sound;
+  $('set-shadows').checked = save.shadows;
+  $('set-sens').value = save.sens;
+  $('set-sens-val').textContent = Number(save.sens).toFixed(1);
+  $('set-assist').checked = save.assist;
+  showScreen('scr-settings');
 }
-
-function pause() {
-  if (G.state !== 'play') return;
-  G.state = 'paused';
-  input.left = input.right = input.dragging = false;
-  refreshMenu();
-  showScreen('scr-pause');
-}
-function resume() {
-  if (G.state !== 'paused') return;
-  initAudio();
-  G.state = 'play';
-  showScreen(null);
-  last = performance.now();
-}
-
-function toggleSound() {
-  save.sound = !save.sound;
+$('set-sound').addEventListener('change', (e) => {
+  save.sound = e.target.checked;
   setSound(save.sound);
   persist();
-  refreshMenu();
-  if (save.sound) {
-    initAudio();
-    sfx.click();
-  }
-}
-
-/* ---------- obchod ---------- */
-
-function renderShop() {
-  $('shop-coins').textContent = save.coins;
-  const ul = $('shop-upgrades');
-  ul.innerHTML = '';
-  for (const u of UPGRADES) {
-    const lvl = save.up[u.id];
-    const maxed = lvl >= u.costs.length;
-    const cost = maxed ? 0 : u.costs[lvl];
-    const row = document.createElement('div');
-    row.className = 'upg';
-    row.innerHTML = `
-      <div class="upg-icon">${u.icon}</div>
-      <div>
-        <div class="upg-name">${u.name}</div>
-        <div class="upg-desc">${u.desc}</div>
-        <div class="pips">${u.costs.map((_, i) => `<i class="${i < lvl ? 'on' : ''}"></i>`).join('')}</div>
-      </div>`;
-    const btn = document.createElement('button');
-    btn.className = 'btn buy' + (maxed ? '' : ' btn-primary');
-    btn.innerHTML = maxed ? 'Max' : `<i class="coin"></i>${cost}`;
-    btn.disabled = maxed || save.coins < cost;
-    btn.addEventListener('click', () => {
-      if (save.coins < cost || maxed) return;
-      save.coins -= cost;
-      save.up[u.id]++;
-      persist();
-      sfx.buy();
-      renderShop();
-    });
-    row.appendChild(btn);
-    ul.appendChild(row);
-  }
-
-  const grid = $('shop-skins');
-  grid.innerHTML = '';
-  for (const [id, sk] of Object.entries(SKINS)) {
-    const owned = save.skins.includes(id);
-    const el = document.createElement('button');
-    el.className = 'skin' + (save.skin === id ? ' sel' : '') + (owned ? '' : ' locked') + (!owned && save.coins < sk.price ? ' cant' : '');
-    const c = document.createElement('canvas');
-    c.width = 220;
-    c.height = 160;
-    const cx = c.getContext('2d');
-    cx.scale(2, 2);
-    drawCow(cx, { x: 52, y: 74, s: 0.62, dir: 1, walk: 0, skin: id, t: 0.5 });
-    el.appendChild(c);
-    const nm = document.createElement('div');
-    nm.className = 'nm';
-    nm.textContent = sk.name;
-    el.appendChild(nm);
-    const pr = document.createElement('div');
-    pr.className = 'pr';
-    pr.innerHTML = owned ? (save.skin === id ? 'Vybraná' : 'Vybrat') : `<i class="coin"></i>${sk.price}`;
-    el.appendChild(pr);
-    el.addEventListener('click', () => {
-      if (owned) {
-        save.skin = id;
-        G.cows[0].skin = id;
-        G.cows[0].moo = 1;
-        sfx.moo(rand(0.95, 1.1));
-      } else if (save.coins >= sk.price) {
-        save.coins -= sk.price;
-        save.skins.push(id);
-        save.skin = id;
-        G.cows[0].skin = id;
-        sfx.buy();
-      } else {
-        sfx.hurt();
-        return;
-      }
-      persist();
-      renderShop();
-    });
-    grid.appendChild(el);
-  }
-}
-
-function openShop(from) {
-  initAudio();
-  shopReturn = from;
-  renderShop();
-  showScreen('scr-shop');
-}
-
-/* ---------- tlačítka ---------- */
+});
+$('set-shadows').addEventListener('change', (e) => {
+  save.shadows = e.target.checked;
+  setShadows(save.shadows);
+  persist();
+});
+$('set-sens').addEventListener('input', (e) => {
+  save.sens = Number(e.target.value);
+  $('set-sens-val').textContent = save.sens.toFixed(1);
+  persist();
+});
+$('set-assist').addEventListener('change', (e) => {
+  save.assist = e.target.checked;
+  persist();
+});
 
 const on = (id, fn) =>
   $(id).addEventListener('click', (e) => {
@@ -1224,54 +1539,42 @@ const on = (id, fn) =>
     sfx.click();
     fn(e);
   });
-
 on('btn-play', startGame);
 on('btn-again', startGame);
-on('btn-shop', () => openShop('scr-menu'));
-on('btn-over-shop', () => openShop('scr-over'));
-on('btn-shop-close', () => {
-  if (shopReturn === 'scr-over') showScreen('scr-over');
-  else showScreen('scr-menu');
-});
 on('btn-help', () => showScreen('scr-help'));
-on('btn-help-close', () => showScreen(G.state === 'over' ? 'scr-over' : 'scr-menu'));
+on('btn-help-close', () => showScreen('scr-menu'));
+on('btn-settings', () => openSettings('scr-menu'));
+on('btn-pause-settings', () => openSettings('scr-pause'));
+on('btn-settings-close', () => showScreen(settingsReturn));
 on('btn-menu', goMenu);
 on('btn-pause', pause);
 on('btn-resume', resume);
 on('btn-quit', goMenu);
-on('btn-sound', toggleSound);
-on('btn-pause-sound', toggleSound);
 
 document.addEventListener('visibilitychange', () => {
   if (document.hidden) {
     pause();
     suspendAudio();
-  } else {
-    last = performance.now();
-  }
+  } else last = performance.now();
 });
-window.addEventListener('blur', pause);
-window.addEventListener('resize', resize);
 
 /* ================= start ================= */
 
 setSound(save.sound);
-G.cows = [makeCow('Bětka', VW / 2, save.skin)];
-G.cows[0].enter = 0;
+setShadows(save.shadows);
+resetGame();
+cow.pos.set(0, 0, 0);
 resize();
-G.menuCowY = VH * 0.58;
-G.cows[0].y = G.menuCowY;
-window.addEventListener('resize', () => {
-  G.menuCowY = VH * 0.58;
-});
+camera.position.set(0, 3.4, 11);
+camera.lookAt(0, 1.1, 0);
 showScreen('scr-menu');
+renderer.render(scene, camera);
+$('loading').hidden = true;
 requestAnimationFrame(frame);
 
 if ('serviceWorker' in navigator && location.protocol.startsWith('http')) {
-  window.addEventListener('load', () => {
-    navigator.serviceWorker.register('sw.js').catch(() => {});
-  });
+  window.addEventListener('load', () => navigator.serviceWorker.register('sw.js').catch(() => {}));
 }
 
 // pro testy v prohlížeči
-window.__krava = { G, save };
+window.__krava = { S, P, cow, girls, save, startWave, spawnEnemy, spawnUfo, input, WEAPONS };
