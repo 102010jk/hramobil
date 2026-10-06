@@ -27,6 +27,7 @@ import {
   buyKey,
 } from './profile.js';
 import { makeSky } from './textures.js';
+import { Lobby, hostLobby, joinLobby, listPublic, setMyTeam, setHostCfg, startHostGame, leave as leaveLobby, inviteLink } from './net.js';
 
 const $ = (id) => document.getElementById(id);
 let api = null;
@@ -90,7 +91,15 @@ export function initUI(a) {
     });
   $('btn-open').addEventListener('click', () => doOpenCase());
   initSettings();
+  initMP();
   showTab('play');
+  const hash = location.hash.match(/join=([A-Za-z0-9]+)/);
+  if (hash) {
+    showTab('mp');
+    $('mp-code').value = hash[1].toUpperCase();
+    history.replaceState(null, '', location.pathname + location.search);
+    setTimeout(() => $('mp-join').click(), 300);
+  }
   refresh();
   const sold = processMarket();
   for (const s of sold) menuToast(`💰 Prodáno: ${s.name} (+${s.price} 🥚)`);
@@ -103,9 +112,10 @@ function closeModal(id) {
   refresh();
 }
 
-export function showMenu() {
+export function showMenu(t) {
   $('menu').hidden = false;
   $('mod-post').hidden = true;
+  if (t) showTab(t);
   refresh();
 }
 
@@ -113,7 +123,7 @@ let tab = 'play';
 function showTab(t) {
   tab = t;
   for (const b of $('tabs').children) b.classList.toggle('on', b.dataset.tab === t);
-  for (const id of ['play', 'inv', 'cases', 'market', 'settings']) $('tab-' + id).hidden = id !== t;
+  for (const id of ['play', 'inv', 'cases', 'mp', 'market', 'settings']) $('tab-' + id).hidden = id !== t;
   if (t === 'market') {
     const sold = processMarket();
     for (const s of sold) menuToast(`💰 Prodáno: ${s.name} (+${s.price} 🥚)`);
@@ -709,8 +719,10 @@ export function showPostMatch(res) {
   $('mod-post').hidden = false;
   $('menu').hidden = false;
   refresh();
+  if (res.net) $('post-again').textContent = 'Zpět do lobby';
   $('post-again').addEventListener('click', () => {
     $('mod-post').hidden = true;
+    if (res.net) return showMenu('mp');
     api.playMatch({ ...opts });
   });
   $('post-menu').addEventListener('click', () => {
@@ -718,3 +730,101 @@ export function showPostMatch(res) {
     showMenu();
   });
 }
+
+/* ================= multiplayer ================= */
+
+const MODE_NAMES = { comp: 'Soutěžní', dm: 'Deathmatch' };
+const esc = (t) => String(t).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
+
+function initMP() {
+  const nameEl = $('mp-name');
+  nameEl.value = P.settings.nick || 'Kravař' + Math.floor(Math.random() * 900 + 100);
+  const nick = () => {
+    const n = nameEl.value.trim().slice(0, 16) || 'Hráč';
+    P.settings.nick = n;
+    save();
+    return n;
+  };
+  const lobbyCfg = () => ({ map: opts.map, mode: opts.mode, difficulty: opts.difficulty, teamSize: opts.teamSize });
+  $('mp-host-pub').addEventListener('click', () => {
+    initAudio();
+    hostLobby({ name: nick(), isPublic: true, cfg: lobbyCfg() });
+  });
+  $('mp-host-priv').addEventListener('click', () => {
+    initAudio();
+    hostLobby({ name: nick(), isPublic: false, cfg: lobbyCfg() });
+  });
+  $('mp-join').addEventListener('click', () => {
+    initAudio();
+    const code = $('mp-code').value.trim();
+    if (!code) return menuToast('Zadej kód lobby.');
+    joinLobby(code, nick());
+  });
+  $('mp-code').addEventListener('keydown', (e) => e.key === 'Enter' && $('mp-join').click());
+  $('mp-refresh').addEventListener('click', async () => {
+    $('mp-list').innerHTML = '<p class="muted">Hledám lobby…</p>';
+    const { list, error } = await listPublic();
+    if (error) return ($('mp-list').innerHTML = `<p class="muted">${esc(error)}</p>`);
+    if (!list.length) return ($('mp-list').innerHTML = '<p class="muted">Teď nikdo nehostuje. Založ vlastní lobby!</p>');
+    $('mp-list').innerHTML = '';
+    for (const l of list) {
+      const row = document.createElement('div');
+      row.className = 'lobby-row';
+      row.innerHTML = `<div><b>${esc(l.name || 'Lobby')}</b><div class="muted">${MAPS[l.map]?.name || l.map} • ${MODE_NAMES[l.mode] || l.mode} • ${l.n}/${l.max} hráčů${l.ingame ? ' • hraje se' : ''}</div></div>`;
+      const b = document.createElement('button');
+      b.className = 'btn primary small';
+      b.textContent = l.ingame ? 'Hraje se' : 'Připojit';
+      b.disabled = !!l.ingame || l.n >= l.max;
+      b.addEventListener('click', () => joinLobby(l.code, nick()));
+      row.appendChild(b);
+      $('mp-list').appendChild(row);
+    }
+  });
+  $('mp-leave').addEventListener('click', () => leaveLobby());
+  $('mp-copy').addEventListener('click', async () => {
+    const link = inviteLink();
+    try {
+      await navigator.clipboard.writeText(link);
+      menuToast('Odkaz zkopírován – pošli ho kamarádům.');
+    } catch {
+      prompt('Zkopíruj odkaz:', link);
+    }
+  });
+  for (const b of document.querySelectorAll('#mp-lobby [data-team]')) b.addEventListener('click', () => setMyTeam(b.dataset.team));
+  $('mp-start').addEventListener('click', () => startHostGame());
+  Lobby.onChange = renderMP;
+  Lobby.onStart = (cfg, setup) => api.playNet(cfg, setup);
+  renderMP();
+}
+
+function renderMP() {
+  if (Lobby.state === 'idle' || Lobby.state === 'connecting') mpPrev = mpPrev === 'ingame' ? 'ingame' : Lobby.state;
+  const inLobby = Lobby.state === 'hosting' || Lobby.state === 'joined' || Lobby.state === 'ingame';
+  $('mp-home').hidden = inLobby;
+  $('mp-lobby').hidden = !inLobby;
+  $('mp-status').textContent = Lobby.state === 'connecting' ? 'Připojuji…' : Lobby.error || '';
+  for (const id of ['mp-host-pub', 'mp-host-priv', 'mp-join']) $(id).disabled = Lobby.state === 'connecting';
+  if (!inLobby) return;
+  $('mp-lcode').textContent = Lobby.code;
+  const meName = Lobby.name;
+  const li = (p) => `<li class="${p.name === meName ? 'me' : ''}">${esc(p.name)} ${p.host ? '<small>(hostitel)</small>' : ''}</li>`;
+  $('mp-ct').innerHTML = Lobby.players.filter((p) => p.team === 'CT').map(li).join('');
+  $('mp-t').innerHTML = Lobby.players.filter((p) => p.team === 'T').map(li).join('');
+  const c = Lobby.cfg;
+  const sel = (key, options) =>
+    `<select data-k="${key}" ${Lobby.isHost ? '' : 'disabled'}>${options.map(([v, n]) => `<option value="${v}" ${String(c[key]) === String(v) ? 'selected' : ''}>${n}</option>`).join('')}</select>`;
+  $('mp-settings').innerHTML = `
+    <label>Mapa ${sel('map', Object.entries(MAPS).map(([k, m]) => [k, m.name]))}</label>
+    <label>Režim ${sel('mode', [['comp', 'Soutěžní (bomba)'], ['dm', 'Týmový deathmatch']])}</label>
+    <label>Boti ${sel('difficulty', [['easy', 'Lehcí'], ['normal', 'Střední'], ['hard', 'Těžcí'], ['expert', 'Experti']])}</label>
+    <label>Velikost týmu (doplní boti) ${sel('teamSize', [[1, '1 – bez botů'], [2, '2'], [3, '3'], [5, '5']])}</label>`;
+  for (const s of $('mp-settings').querySelectorAll('select'))
+    s.addEventListener('change', () => setHostCfg({ [s.dataset.k]: s.dataset.k === 'teamSize' ? Number(s.value) : s.value }));
+  $('mp-start').hidden = !Lobby.isHost;
+  $('mp-wait').textContent = Lobby.isHost
+    ? `Pošli kamarádům kód ${Lobby.code} nebo pozvánku. Prázdná místa doplní boti.`
+    : 'Čekáme, až hostitel spustí zápas…';
+  if (tab !== 'mp' && (mpPrev === 'connecting' || mpPrev === 'ingame') && Lobby.state !== 'ingame') showTab('mp');
+  mpPrev = Lobby.state;
+}
+let mpPrev = 'idle';

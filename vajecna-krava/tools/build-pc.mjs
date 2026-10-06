@@ -24,8 +24,9 @@ html = html
   .replace(/\s*<link rel="apple-touch-icon"[^>]*>/, '')
   .replace(/<link rel="icon"[^>]*>/, `<link rel="icon" href="${icon}">`)
   .replace(/<link rel="stylesheet" href="css\/style.css">/, () => `<style>${css}</style>`)
+  .replace(/<script src="js\/vendor\/peerjs.min.js"><\/script>/, () => `<script>${fs.readFileSync(path.join(root, 'js/vendor/peerjs.min.js'), 'utf8').replace(/<\/script/gi, '<\\/script')}</script>`)
   .replace(/<script type="module" src="js\/main.js"><\/script>/, () => `<script>${js}</script>`);
-if (html.includes('js/main.js') || html.includes('css/style.css')) throw new Error('Nepodařilo se vložit skripty/styly do HTML');
+if (html.includes('js/main.js') || html.includes('css/style.css') || html.includes('vendor/peerjs')) throw new Error('Nepodařilo se vložit skripty/styly do HTML');
 const out = path.join(dist, 'vajecna-krava.html');
 fs.writeFileSync(out, html);
 fs.rmSync(bundle);

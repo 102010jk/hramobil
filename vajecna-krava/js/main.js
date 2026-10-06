@@ -2,8 +2,9 @@
 import * as THREE from './vendor/three.module.min.js';
 import { initAudio, setSound, suspendAudio } from './audio.js';
 import { makeSky } from './textures.js';
-import { startMatch, stopMatch, updateMatch, updateIdle, setMapForMenu, setPaused, lockPointer, MATCH, isTouch, toggleScoreboard } from './match.js';
-import { initUI, showPostMatch, showMenu, uiTick } from './ui.js';
+import { startMatch, stopMatch, updateMatch, updateIdle, setMapForMenu, setPaused, lockPointer, MATCH, isTouch, toggleScoreboard, isNetGame, debugInput } from './match.js';
+import { Lobby, leave as leaveLobby, backToLobby } from './net.js';
+import { initUI, showPostMatch, showMenu, uiTick, menuToast } from './ui.js';
 import { P } from './profile.js';
 
 const $ = (id) => document.getElementById(id);
@@ -87,10 +88,12 @@ const env = {
   vmCamera,
   setSky,
   onEnd: (res) => {
+    const net = isNetGame();
     setTimeout(() => {
       stopMatch();
       setMapForMenu(menuMap, env);
-      showPostMatch(res);
+      showPostMatch({ ...res, net });
+      if (net) backToLobby();
     }, 2500);
   },
   onPause: () => pause(),
@@ -105,8 +108,17 @@ function playMatch(cfg) {
   applyQuality();
 }
 
+function playNet(cfg, setup) {
+  initAudio();
+  $('menu').hidden = true;
+  $('mod-post').hidden = true;
+  startMatch(cfg, env, setup);
+  menuMap = cfg.map;
+  applyQuality();
+}
+
 function pause() {
-  if (!MATCH.active || MATCH.paused) return;
+  if (!MATCH.active || !$('pause').hidden) return;
   setPaused(true);
   $('pause').hidden = false;
 }
@@ -128,13 +140,14 @@ $('btn-pause-score').addEventListener('click', () => {
 });
 $('btn-quit').addEventListener('click', () => {
   $('pause').hidden = true;
+  if (isNetGame()) leaveLobby();
   stopMatch();
   setMapForMenu(menuMap, env);
   showMenu();
 });
 window.addEventListener('keydown', (e) => {
   if (e.code === 'Escape' && MATCH.active) {
-    if (MATCH.paused) resume();
+    if (!$('pause').hidden) resume();
     else if ($('buymenu').hidden) pause();
   }
 });
@@ -148,7 +161,18 @@ document.addEventListener('visibilitychange', () => {
 /* ---------- smyčka ---------- */
 let last = performance.now();
 let orbit = 0;
+let lastFrame = performance.now();
+// hostitel musí simulovat i ve skryté záložce (prohlížeč tam zastaví requestAnimationFrame)
+setInterval(() => {
+  const now = performance.now();
+  if (MATCH.active && isNetGame() && now - lastFrame > 200) {
+    const dt = Math.min(0.1, (now - last) / 1000);
+    last = now;
+    updateMatch(dt);
+  }
+}, 50);
 function frame(now) {
+  lastFrame = now;
   const dt = Math.min(0.05, (now - last) / 1000);
   last = now;
   if (MATCH.active) updateMatch(dt);
@@ -176,7 +200,16 @@ function frame(now) {
 setSound(P.settings.sound);
 resize();
 setMapForMenu(menuMap, env);
-initUI({ playMatch, applyQuality, setSound, onMenuMap: (id) => setMapForMenu((menuMap = id), env) });
+initUI({ playMatch, playNet, applyQuality, setSound, onMenuMap: (id) => setMapForMenu((menuMap = id), env) });
+Lobby.onLost = (msg) => {
+  if (MATCH.active) {
+    stopMatch();
+    setMapForMenu(menuMap, env);
+    $('pause').hidden = true;
+    showMenu('mp');
+  }
+  menuToast('⚠️ ' + msg);
+};
 applyQuality();
 $('loading').hidden = true;
 requestAnimationFrame(frame);
@@ -185,4 +218,4 @@ if ('serviceWorker' in navigator && location.protocol.startsWith('http')) {
   window.addEventListener('load', () => navigator.serviceWorker.register('sw.js').catch(() => {}));
 }
 
-window.__vk = { MATCH, P, env, updateMatch };
+window.__vk = { MATCH, P, env, updateMatch, debugInput };

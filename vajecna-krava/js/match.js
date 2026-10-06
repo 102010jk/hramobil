@@ -235,7 +235,7 @@ function bindInput() {
       renderScoreboard();
     } else if (e.code === 'KeyC' || e.code === 'ControlLeft') IN.crouch = true;
     else if (e.code === 'KeyE') IN.use = true;
-    else if (e.code === 'KeyG') dropActive(me);
+    else if (e.code === 'KeyG' && NET?.role !== 'client') dropActive(me);
     else if (e.code === 'Escape' && !$('buymenu').hidden) closeBuy();
   });
   window.addEventListener('keyup', (e) => {
@@ -287,7 +287,7 @@ function readMove() {
 /* ================= bojovníci ================= */
 
 function skinFor(f, slot) {
-  if (f.isBot) return f.botSkins?.[slot] || null;
+  if (f !== S.me) return f.botSkins?.[slot] || null;
   return equipped(slot);
 }
 function skinTexOf(inst) {
@@ -342,12 +342,12 @@ function makeFighter(name, team, isBot) {
     model: null,
     gunObj: null,
     bot: null,
+    botSkins: {},
+    sp: 0,
   };
   if (isBot) {
     f.bot = { target: null, reactT: 0, aimErr: v3(), lastSeen: null, lastSeenT: -99, path: [], pathI: 0, goal: null, repathT: 0, thinkT: rand(0, 0.2), strafe: 1, strafeT: 0, burst: 0, burstPause: 0, stuckT: 0, lastPos: v3(), holdYaw: null, noiseT: 0, nadeUsed: false, role: null };
     f.agent = pickAgentForBot(team);
-    // boti mají občas skiny
-    f.botSkins = {};
   }
   return f;
 }
@@ -358,7 +358,7 @@ function pickAgentForBot(team) {
 }
 
 function agentOf(f) {
-  if (f.isBot) return f.agent;
+  if (f !== S.me) return f.agent || (f.team === 'T' ? 't_default' : 'ct_default');
   const inst = equipped(f.team === 'T' ? 'agentT' : 'agentCT');
   return inst ? ITEMS[inst.def].agent : f.team === 'T' ? 't_default' : 'ct_default';
 }
@@ -391,7 +391,7 @@ function refreshGunModel(f) {
 }
 
 function knifeSkinOf(f) {
-  return f.isBot ? f.botSkins.knife || null : equipped('knife');
+  return f !== S.me ? f.botSkins?.knife || null : equipped('knife');
 }
 function knifeModelOf(f) {
   const s = knifeSkinOf(f);
@@ -415,9 +415,16 @@ function defaultPistol(team) {
 
 /* ================= start / konec ================= */
 
-export function startMatch(config, environment) {
+export function startMatch(config, environment, netSetup = null) {
   env = environment;
   cfg = config;
+  NET = netSetup?.net || null;
+  netState.sendT = 0;
+  netState.snapT = 0;
+  netState.nadeId = 0;
+  netState.smokeId = 0;
+  netState.puppetNades.clear();
+  netState.puppetSmokes.clear();
   bindInput();
   if (map) map.dispose();
   map = loadMap(cfg.map, env.scene, { shadows: PROFILE.settings.shadows });
@@ -434,13 +441,40 @@ export function startMatch(config, environment) {
   S.dmTime = DM_TIME;
   S.dmKills = { T: 0, CT: 0 };
 
-  const me = makeFighter('Ty', cfg.side, false);
-  S.me = me;
-  S.fighters.push(me);
   const names = [...BOT_NAMES].sort(() => Math.random() - 0.5);
-  for (let i = 0; i < cfg.teamSize - 1; i++) S.fighters.push(makeFighter(names.pop(), cfg.side, true));
-  const other = cfg.side === 'T' ? 'CT' : 'T';
-  for (let i = 0; i < cfg.teamSize; i++) S.fighters.push(makeFighter(names.pop(), other, true));
+  if (netSetup?.role === 'client') {
+    // klient: postavy podle seznamu od hostitele
+    netSetup.roster.forEach((r, i) => {
+      const f = makeFighter(r.name, r.team, false);
+      f.puppet = i !== netSetup.you;
+      f.agent = r.agent;
+      f.botSkins = r.skins || {};
+      S.fighters.push(f);
+    });
+    S.me = S.fighters[netSetup.you];
+  } else if (netSetup?.role === 'host') {
+    for (const p of netSetup.players) {
+      const f = makeFighter(p.name, p.team, false);
+      if (p.peer) {
+        f.remote = p.peer;
+        f.agent = p.agents?.[p.team] || (p.team === 'T' ? 't_default' : 'ct_default');
+        f.botSkins = p.skins || {};
+      } else S.me = f;
+      S.fighters.push(f);
+    }
+    for (const team of ['T', 'CT']) {
+      const have = S.fighters.filter((f) => f.team === team).length;
+      for (let i = have; i < cfg.teamSize; i++) S.fighters.push(makeFighter(names.pop() || 'Bot ' + i, team, true));
+    }
+  } else {
+    const me = makeFighter('Ty', cfg.side, false);
+    S.me = me;
+    S.fighters.push(me);
+    for (let i = 0; i < cfg.teamSize - 1; i++) S.fighters.push(makeFighter(names.pop(), cfg.side, true));
+    const other = cfg.side === 'T' ? 'CT' : 'T';
+    for (let i = 0; i < cfg.teamSize; i++) S.fighters.push(makeFighter(names.pop(), other, true));
+  }
+  S.fighters.forEach((f, i) => (f.id = i));
   // skiny pro boty
   const skinDefs = Object.values(ITEMS).filter((d) => d.type === 'weapon');
   for (const f of S.fighters)
@@ -461,13 +495,20 @@ export function startMatch(config, environment) {
   $('touch').hidden = !isTouch;
   $('minimap').hidden = false;
   S.hudCache = {};
-  if (cfg.mode === 'dm') startDM();
+  if (NET?.role === 'client') {
+    S.phase = 'freeze';
+    S.phaseT = 0;
+    S.liveT = 0;
+    S.bomb = null;
+    for (const f of S.fighters) f.model.visible = false;
+  } else if (cfg.mode === 'dm') startDM();
   else startRound();
   lockPointer();
 }
 
 export function stopMatch() {
   S.active = false;
+  NET = null;
   clearEntities();
   for (const f of S.fighters) if (f.model) env.scene.remove(f.model);
   S.fighters = [];
@@ -553,7 +594,7 @@ function updateCows(dt) {
       c.walking = true;
     }
     animateCow(c.mesh, S.t + c.layT, c.walking);
-    if (c.layT <= 0 && S.active) {
+    if (c.layT <= 0 && S.active && NET?.role !== 'client') {
       c.layT = rand(20, 35);
       const back = v3(-Math.sin(c.mesh.rotation.y), 0, -Math.cos(c.mesh.rotation.y)).multiplyScalar(1.1).add(c.pos);
       map.collide(back, 0.3);
@@ -600,6 +641,7 @@ function spawnEgg(p) {
 
 function spawnFighter(f, p) {
   f.alive = true;
+  f.sp = (f.sp || 0) + 1;
   f.hp = 100;
   f.pos.copy(p);
   f.y = 0;
@@ -671,7 +713,7 @@ function startRound() {
   S.fighters.filter((f) => f.team === 'CT' && f.isBot).forEach((f, i) => (f.bot.role = i % 2 ? 'A' : 'B'));
   S.fighters.filter((f) => f.team === 'T' && f.isBot).forEach((f) => (f.bot.role = Math.random() < 0.2 ? (S.tSite === 'A' ? 'B' : 'A') : S.tSite));
   for (const f of S.fighters) if (f.isBot) botBuy(f);
-  centerMsg(`Kolo ${S.round}`, `${TEAM_NAME[S.me.team]} • nakupuj (B)`);
+  centerMsg(`Kolo ${S.round}`, isTouch ? 'nakupuj 🛒' : 'nakupuj (B)');
   if (S.me.hasBomb) toast('Máš <b>Zlaté vejce</b> (bombu)! Polož ho na místo A nebo B.');
   S.hudCache = {};
   if (S.round === 1) toast(isTouch ? 'Tlačítko 🛒 = nákup zbraní' : 'B = nákup, Tab = skóre, E = položit/zneškodnit');
@@ -716,6 +758,7 @@ function endRound(winner, reason) {
   centerMsg(texts[reason], `${TEAM_NAME.T} ${S.score.T} : ${S.score.CT} ${TEAM_NAME.CT}${mvp ? ` • MVP: ${mvp.name}` : ''}`, winner === 'T' ? 't' : 'ct');
   if (winner === S.me.team) sfx.roundWin();
   else sfx.roundLose();
+  emit({ k: 'rend', w: winner });
   if (S.score[winner] >= WIN_ROUNDS) {
     S.phaseT = 4;
     S.matchWinner = winner;
@@ -742,7 +785,7 @@ function respawnDM(f) {
     const list = WEAPONS.filter((w) => w.cat !== 'pistol' && (w.side === 'both' || w.side === f.team));
     const prefer = Math.random() < 0.5 ? (f.team === 'T' ? 'ak47' : 'm4a4') : pick(list).id;
     giveWeapon(f, prefer);
-  } else if (S.lastDMWeapon) giveWeapon(f, S.lastDMWeapon);
+  } else if (f.lastDMWeapon) giveWeapon(f, f.lastDMWeapon);
   f.slots.secondary = { def: BY_ID[defaultPistol(f.team)], mag: BY_ID[defaultPistol(f.team)].mag, reserve: 120, skin: skinFor(f, defaultPistol(f.team)) };
   f.active = f.slots.primary ? 'primary' : 'secondary';
   f.spawnProtect = 1.5;
@@ -802,6 +845,10 @@ function finishMatch(winner) {
   const myTeam = S.fighters.filter((f) => f.team === me.team).sort((a, b) => b.kills - a.kills);
   const mvp = myTeam[0] === me;
   if (document.pointerLockElement) document.exitPointerLock?.();
+  if (NET?.role === 'host') {
+    sendSnapshot();
+    NET.broadcast({ t: 'end', winner, score: cfg.mode === 'dm' ? S.dmKills : S.score, fighters: S.fighters.map((f) => ({ name: f.name, team: f.team, kills: f.kills, deaths: f.deaths, assists: f.assists, hs: f.hs, mvps: f.mvps })) });
+  }
   env.onEnd?.({
     win: winner === me.team,
     winner,
@@ -830,6 +877,10 @@ function priceOf(f, price) {
 }
 
 function buy(f, what) {
+  if (NET?.role === 'client' && f === S.me) {
+    NET.send({ t: 'buy', what });
+    return true;
+  }
   const canSide = (w) => w.side === 'both' || w.side === f.team;
   if (BY_ID[what]) {
     const w = BY_ID[what];
@@ -839,7 +890,7 @@ function buy(f, what) {
     f.money -= p;
     if (f.slots[w.slot] && cfg.mode !== 'dm') dropWeapon(f, w.slot);
     giveWeapon(f, what);
-    if (cfg.mode === 'dm' && f === S.me && w.slot === 'primary') S.lastDMWeapon = what;
+    if (cfg.mode === 'dm' && w.slot === 'primary') f.lastDMWeapon = what;
   } else if (GRENADES[what]) {
     const p = priceOf(f, GRENADES[what].price);
     const total = f.nades.he + f.nades.flash + f.nades.smoke;
@@ -1033,7 +1084,7 @@ function updateBomb(dt) {
     // pokládání
     const f = b.carrier;
     const site = map.siteOf(f.pos);
-    const wantPlant = f.isBot ? f.bot.wantPlant : IN.use || (f.active === 'bomb' && IN.fire);
+    const wantPlant = f.isBot ? f.bot.wantPlant : f.remote ? f.netUse : IN.use || (f.active === 'bomb' && IN.fire);
     if (S.phase === 'live' && site && wantPlant && f.onGround && f.vel.length() < 1.2) {
       b.plantT += dt;
       if (f.active !== 'bomb') selectSlot(f, 'bomb');
@@ -1045,7 +1096,7 @@ function updateBomb(dt) {
     for (const f of S.fighters) {
       if (!f.alive || f.team !== 'CT') continue;
       const near = Math.hypot(f.pos.x - b.pos.x, f.pos.z - b.pos.z) < 1.6;
-      const wants = f.isBot ? f.bot.wantDefuse : IN.use;
+      const wants = f.isBot ? f.bot.wantDefuse : f.remote ? f.netUse : IN.use;
       if (near && wants && f.vel.length() < 1) {
         defuser = f;
         break;
@@ -1084,6 +1135,7 @@ function plantBomb(f, site) {
   S.phase = 'planted';
   f.money = Math.min(16000, f.money + 300);
   sfx.plant();
+  emit({ k: 'snd', n: 'plant' });
   centerMsg('Zlaté vejce položeno!', `Místo ${site} • ${BOMB_TIME} s`, 't');
   f.active = f.slots.primary ? 'primary' : f.slots.secondary ? 'secondary' : 'knife';
   refreshGunModel(f);
@@ -1093,6 +1145,7 @@ function explodeBomb() {
   const b = S.bomb;
   b.state = 'exploded';
   sfx.boom();
+  emit({ k: 'boom', p: P3(b.pos), big: 1 });
   burst(b.pos.clone().setY(1), 120, ['#ffe27a', '#ff8a3d', '#ffffff', '#ffc21a'], 18, 0.35, 4, 2);
   for (const f of S.fighters) {
     if (!f.alive) continue;
@@ -1205,7 +1258,18 @@ function cowHit(c, by) {
 }
 
 function damage(victim, attacker, def, part, dist, base, src = 'gun') {
+  if (NET?.role === 'client') {
+    // klient jen hlásí zásahy hostiteli
+    if (attacker === S.me && victim !== S.me && victim.alive) {
+      NET.send({ t: 'hit', v: victim.id, part, dist: Math.round(dist * 10) / 10, base: Math.round(base * 10) / 10, w: def?.id || null, src });
+      hitmarker(part === 'head');
+      if (part === 'head') sfx.headshot();
+      else sfx.hitBody();
+    }
+    return;
+  }
   if (!victim.alive || (victim.spawnProtect || 0) > 0) return;
+  if (victim.remote && attacker) emit({ k: 'dmg', v: victim.id, x: Math.round(attacker.pos.x * 10) / 10, z: Math.round(attacker.pos.z * 10) / 10 });
   let d = base;
   if (part === 'head') d *= def?.cat === 'shotgun' ? 2 : 4;
   else if (part === 'legs') d *= 0.75;
@@ -1271,6 +1335,7 @@ function kill(victim, attacker, def, hs, src) {
   for (const [who, dmg] of victim.dmgBy) if (who !== attacker && dmg >= 40 && who.team !== victim.team) who.assists++;
   const weaponName = src === 'bomb' ? 'Zlaté vejce' : src === 'he' ? 'Vaječný granát' : src === 'knife' ? 'Nůž' : def?.name || '?';
   addKillfeed(attacker, victim, weaponName, hs);
+  emit({ k: 'kf', a: attacker ? attacker.id : -1, v: victim.id, w: weaponName, hs: hs ? 1 : 0 });
   burst(eyePos(victim).setY(victim.y + 1.2), 25, ['#ffc21a', '#fff3c4', '#ffffff'], 4, 0.08, 9, 1);
   if (victim === S.me) {
     S.spectate = null;
@@ -1283,7 +1348,7 @@ function kill(victim, attacker, def, hs, src) {
     const n = S.me.roundKills;
     if (n >= 2 && cfg.mode !== 'dm') toast(['', '', 'Dvojité zabití!', 'Trojité zabití!', 'Ultra kill!', 'ACE! Celý tým!'][Math.min(n, 5)]);
   }
-  if (attacker?.isBot && attacker.team === S.me.team && Math.random() < 0.25) botChat(attacker, ['Mám ho!', 'Jeden dole!', 'Bůů, další!', 'Hezky do hlavy.', 'Vajíčko v hlavě!']);
+  if (attacker?.isBot && Math.random() < 0.25) botChat(attacker, ['Mám ho!', 'Jeden dole!', 'Bůů, další!', 'Hezky do hlavy.', 'Vajíčko v hlavě!']);
 }
 
 /* ================= střelba ================= */
@@ -1328,6 +1393,7 @@ function tryFire(f, dt) {
   const yaw = f.yaw + f.punchY * 2;
   const pitch = f.pitch + f.punchP * 2;
   let end = null;
+  const ends = [];
   for (let i = 0; i < def.pellets; i++) {
     const d = aimDir(yaw, pitch);
     // náhodný kužel
@@ -1337,8 +1403,12 @@ function tryFire(f, dt) {
     T2.crossVectors(T1, d).normalize();
     d.addScaledVector(T1, Math.cos(a) * r).addScaledVector(T2, Math.sin(a) * r).normalize();
     end = hitscan(f, o, d, def);
+    if (i < 3) ends.push(P3(end));
     if (i < 3 && (f === S.me || Math.random() < 0.6)) addTracer(muzzle, end, def.cat === 'sniper');
   }
+  const shotMsg = { i: f.id, c: def.cat, s: def.sil ? 1 : 0, o: P3(muzzle), e: ends };
+  if (NET?.role === 'client') NET.send({ t: 'shot', ...shotMsg });
+  else emit({ k: 'shot', ...shotMsg });
   // zpětný ráz
   const k = f.spray < 3 ? 0.6 : 1;
   f.punchP += def.recoil * k * (def.cat === 'sniper' ? 0.5 : 1);
@@ -1366,6 +1436,8 @@ function tryFire(f, dt) {
 
 function knifeAttack(f, dmg) {
   sfx.knife();
+  if (NET?.role === 'client') NET.send({ t: 'snd', n: 'knife' });
+  else emit({ k: 'snd', n: 'knife', p: P3(f.pos) });
   const o = eyePos(f, v3());
   const d = aimDir(f.yaw, f.pitch);
   if (f === S.me) vm.kick = 1.2;
@@ -1402,22 +1474,35 @@ function muzzlePos(f) {
 
 /* ================= granáty ================= */
 
-function throwNade(f, kind) {
+function throwNade(f, kind, remoteO = null, remoteV = null) {
   f.nades[kind]--;
   const d = aimDir(f.yaw, f.pitch + 0.12);
+  if (NET?.role === 'client' && f === S.me) {
+    const o = eyePos(f).addScaledVector(d, 0.5);
+    const vel = d.multiplyScalar(17).add(f.vel.clone().multiplyScalar(0.5));
+    NET.send({ t: 'nade', k: kind, o: P3(o), v: P3(vel) });
+    sfx.knife();
+    if (f.nades[kind] <= 0) {
+      const next = ['he', 'flash', 'smoke'].find((k) => f.nades[k] > 0);
+      f.active = next || (f.slots.primary ? 'primary' : f.slots.secondary ? 'secondary' : 'knife');
+      refreshGunModel(f);
+    }
+    return;
+  }
   const mesh = buildGrenade(kind);
   mesh.scale.setScalar(1.6);
-  const o = eyePos(f).addScaledVector(d, 0.5);
+  const o = remoteO ? v3(...remoteO) : eyePos(f).addScaledVector(d, 0.5);
   mesh.position.copy(o);
   env.scene.add(mesh);
-  S.nades.push({ kind, owner: f, mesh, pos: mesh.position, vel: d.multiplyScalar(f.isBot ? 15 : 17).add(f.vel.clone().multiplyScalar(0.5)), t: kind === 'smoke' ? 1.8 : 1.6, rest: false });
+  const vel = remoteV ? v3(...remoteV) : d.multiplyScalar(f.isBot ? 15 : 17).add(f.vel.clone().multiplyScalar(0.5));
+  S.nades.push({ id: ++netState.nadeId, kind, owner: f, mesh, pos: mesh.position, vel, t: kind === 'smoke' ? 1.8 : 1.6, rest: false });
   sfx.knife();
   if (f.nades[kind] <= 0) {
     const next = ['he', 'flash', 'smoke'].find((k) => f.nades[k] > 0);
     f.active = next || (f.slots.primary ? 'primary' : f.slots.secondary ? 'secondary' : 'knife');
     refreshGunModel(f);
   }
-  if (f.isBot && f.team === S.me.team) botChat(f, [kind === 'he' ? 'Granát!' : kind === 'flash' ? 'Oslepuju!' : 'Kouř!']);
+  if (f.isBot) botChat(f, [kind === 'he' ? 'Granát!' : kind === 'flash' ? 'Oslepuju!' : 'Kouř!']);
 }
 
 function updateNades(dt) {
@@ -1449,6 +1534,10 @@ function updateNades(dt) {
       S.nades.splice(i, 1);
     }
   }
+  updateSmokes(dt);
+}
+
+function updateSmokes(dt) {
   for (let i = S.smokes.length - 1; i >= 0; i--) {
     const s = S.smokes[i];
     s.life -= dt;
@@ -1485,6 +1574,7 @@ function detonate(n) {
   const p = n.pos.clone();
   if (n.kind === 'he') {
     sfx.boom();
+    emit({ k: 'boom', p: P3(p) });
     burst(p.clone().setY(p.y + 0.3), 50, ['#ffe27a', '#ff8a3d', '#fff8ec', '#ffc21a'], 10, 0.15, 6, 1);
     for (const f of S.fighters) {
       if (!f.alive) continue;
@@ -1498,6 +1588,7 @@ function detonate(n) {
     addDecal(p.clone().setY(0.02), v3(0, 1, 0), 1.5);
   } else if (n.kind === 'flash') {
     sfx.flashbang();
+    emit({ k: 'snd', n: 'flashbang', p: P3(p) });
     burst(p, 20, ['#ffffff', '#fff3c4'], 6, 0.06, 2, 0.4);
     for (const f of S.fighters) {
       if (!f.alive) continue;
@@ -1512,6 +1603,13 @@ function detonate(n) {
     }
   } else if (n.kind === 'smoke') {
     sfx.smokePop();
+    emit({ k: 'snd', n: 'smokePop', p: P3(p) });
+    makeSmoke(p, 16.5, ++netState.smokeId);
+  }
+}
+
+function makeSmoke(p, life, id) {
+  {
     const group = new THREE.Group();
     const puffs = [];
     const mat = new THREE.SpriteMaterial({ map: getSmokeTex(), color: '#e8eef2', transparent: true, depthWrite: false, opacity: 0 });
@@ -1526,7 +1624,9 @@ function detonate(n) {
       puffs.push({ sprite: s, y, ph: Math.random() * 6 });
     }
     env.scene.add(group);
-    S.smokes.push({ group, puffs, pos: p.clone().setY(1.5), r: 0.5, life: 16.5 });
+    const s = { id, group, puffs, pos: p.clone().setY(1.5), r: 0.5, life };
+    S.smokes.push(s);
+    return s;
   }
 }
 
@@ -1721,7 +1821,9 @@ function updateMe(dt) {
 function botChat(f, lines) {
   if ((f.chatCd || 0) > S.t) return;
   f.chatCd = S.t + 8;
-  toast(`<b style="color:${TEAM_COLOR[f.team]}">${f.name}:</b> ${pick(lines)}`);
+  const html = `<b style="color:${TEAM_COLOR[f.team]}">${f.name}:</b> ${pick(lines)}`;
+  if (f.team === S.me.team) toast(html);
+  emit({ k: 'chat', t: f.team, h: html });
 }
 
 function canSee(f, g) {
@@ -2236,7 +2338,8 @@ function showDamageDir(from) {
 }
 
 let centerTimer = 0;
-function centerMsg(title, sub = '', cls = '') {
+function centerMsg(title, sub = '', cls = '', local = false) {
+  if (!local) emit({ k: 'msg', a: title, b: sub, c: cls });
   const el = $('center-msg');
   el.className = 'center-msg show ' + cls;
   el.innerHTML = `${title}${sub ? `<small>${sub}</small>` : ''}`;
@@ -2382,6 +2485,7 @@ function renderBuy() {
       if (buy(me, b.dataset.id)) {
         sfx.buy();
         renderBuy();
+        if (NET?.role === 'client') setTimeout(() => !$('buymenu').hidden && renderBuy(), 250);
       } else sfx.empty();
     };
 }
@@ -2410,15 +2514,29 @@ function renderScoreboard() {
 /* ================= hlavní smyčka zápasu ================= */
 
 export function updateMatch(dt) {
-  if (!S.active || S.paused) return;
+  if (!S.active || (S.paused && !NET)) return;
   S.t += dt;
-  if (S.phase !== 'over') updateRound(dt);
-  updateMe(dt);
-  for (const f of S.fighters) if (f.isBot && f.alive) updateBot(f, dt);
-  for (const f of S.fighters) updateFighterCommon(f, dt);
-  updateBomb(dt);
-  updateNades(dt);
-  updateDrops(dt);
+  if (NET?.role === 'client') {
+    updateMe(dt);
+    for (const f of S.fighters) if (f.puppet) updatePuppet(f, dt);
+    for (const f of S.fighters) updateFighterCommon(f, dt);
+    updateBombClient(dt);
+    updateSmokes(dt);
+    netState.sendT -= dt;
+    if (netState.sendT <= 0) {
+      netState.sendT = 1 / 30;
+      sendMyState();
+    }
+  } else {
+    if (S.phase !== 'over') updateRound(dt);
+    updateMe(dt);
+    for (const f of S.fighters) if (f.remote) applyRemote(f, dt);
+    for (const f of S.fighters) if (f.isBot && f.alive) updateBot(f, dt);
+    for (const f of S.fighters) updateFighterCommon(f, dt);
+    updateBomb(dt);
+    updateNades(dt);
+    updateDrops(dt);
+  }
   updateCows(dt);
   updateParticles(dt);
   for (let i = S.tracers.length - 1; i >= 0; i--) {
@@ -2437,6 +2555,13 @@ export function updateMatch(dt) {
   updateCamera(dt);
   updateViewModel(dt);
   updateHud(dt);
+  if (NET?.role === 'host') {
+    netState.snapT -= dt;
+    if (netState.snapT <= 0) {
+      netState.snapT = 1 / 20;
+      sendSnapshot();
+    }
+  }
 }
 
 /** Menu pozadí – jen krávy a efekty. */
@@ -2447,10 +2572,472 @@ export function updateIdle(dt) {
 }
 
 export function setPaused(p) {
-  S.paused = p;
+  S.paused = p && !NET;
   if (p) {
     IN.fire = false;
     IN.keys.clear();
     IN.use = false;
   }
+}
+
+/* ================= multiplayer (hostitel simuluje, klienti posílají vstupy) ================= */
+
+let NET = null; // { role: 'host' | 'client', send(msg), broadcast(msg) }
+const netState = { sendT: 0, snapT: 0, nadeId: 0, smokeId: 0, events: [], puppetNades: new Map(), puppetSmokes: new Map(), lastSnap: 0 };
+const r2 = (x) => Math.round(x * 100) / 100;
+function P3(p) {
+  return [r2(p.x), r2(p.y), r2(p.z)];
+}
+function emit(e) {
+  if (NET?.role === 'host') netState.events.push(e);
+}
+export function isNetGame() {
+  return !!NET;
+}
+
+/** Skiny, které právě nosím (posílají se ostatním hráčům). */
+export function mySkins() {
+  const out = {};
+  for (const w of WEAPONS) {
+    const inst = equipped(w.id);
+    if (inst) out[w.id] = { def: inst.def, seed: inst.seed, wear: inst.wear };
+  }
+  const k = equipped('knife');
+  if (k) out.knife = { def: k.def, seed: k.seed, wear: k.wear };
+  return out;
+}
+export function myAgents() {
+  const t = equipped('agentT');
+  const ct = equipped('agentCT');
+  return { T: t ? ITEMS[t.def].agent : 't_default', CT: ct ? ITEMS[ct.def].agent : 'ct_default' };
+}
+
+/** Seznam postav pro klienty (po startu u hostitele). */
+export function exportRoster() {
+  return S.fighters.map((f) => ({ name: f.name, team: f.team, agent: agentOf(f), skins: f === S.me ? mySkins() : f.botSkins, peer: f.remote || null, bot: f.isBot }));
+}
+
+const ACT = ['primary', 'secondary', 'knife', 'he', 'flash', 'smoke', 'bomb'];
+
+function sendSnapshot() {
+  const b = S.bomb;
+  const msg = {
+    t: 'snap',
+    ph: S.phase,
+    pt: r2(S.phaseT),
+    lt: r2(S.liveT || 0),
+    rnd: S.round,
+    sc: [S.score.T, S.score.CT],
+    dk: [S.dmKills?.T || 0, S.dmKills?.CT || 0],
+    f: S.fighters.map((f) => [
+      f.alive ? 1 : 0,
+      r2(f.pos.x),
+      r2(f.y),
+      r2(f.pos.z),
+      r2(f.yaw),
+      r2(f.pitch),
+      r2(f.crouch),
+      Math.ceil(f.hp),
+      Math.ceil(f.armor),
+      f.helmet ? 1 : 0,
+      ACT.indexOf(f.active),
+      f.slots.primary?.def.id || '',
+      f.slots.secondary?.def.id || '',
+      f.money,
+      f.kills,
+      f.deaths,
+      f.assists,
+      f.hs,
+      f.mvps,
+      f.hasBomb ? 1 : 0,
+      r2(f.flashT),
+      f.sp,
+      f.kit ? 1 : 0,
+      f.nades.he,
+      f.nades.flash,
+      f.nades.smoke,
+      r2(f.vel.x),
+      r2(f.vel.z),
+    ]),
+    b: b ? [b.state, ...P3(b.pos), r2(b.timer), b.carrier ? b.carrier.id : -1, r2(b.plantT), b.defuser ? b.defuser.id : -1, r2(b.defuseT), b.site || ''] : null,
+    n: S.nades.map((n) => [n.id, n.kind, ...P3(n.pos)]),
+    s: S.smokes.map((s) => [s.id, r2(s.pos.x), r2(s.pos.z), r2(s.life)]),
+    e: netState.events.splice(0),
+  };
+  NET.broadcast(msg);
+}
+
+function setSlotsFromNet(f, pri, sec, local) {
+  for (const [slot, id] of [['primary', pri], ['secondary', sec]]) {
+    const cur = f.slots[slot]?.def.id || '';
+    if (cur === id) continue;
+    if (!id) {
+      f.slots[slot] = null;
+      if (f.active === slot) f.active = f.slots.secondary ? 'secondary' : 'knife';
+    } else if (local) {
+      const keep = f.active;
+      giveWeapon(f, id);
+      if (keep !== slot && (keep === 'knife' || f.slots[keep] || f.nades[keep] > 0)) f.active = keep;
+    } else {
+      const def = BY_ID[id];
+      f.slots[slot] = { def, mag: def.mag, reserve: def.reserve, skin: skinFor(f, id) };
+    }
+    if (f.model) refreshGunModel(f);
+  }
+}
+
+function applySnapshot(m) {
+  netState.lastSnap = performance.now();
+  const me = S.me;
+  if (S.phase !== m.ph && m.ph === 'freeze') {
+    // nové kolo
+    for (const s of S.smokes) env.scene.remove(s.group);
+    S.smokes = [];
+    netState.puppetSmokes.clear();
+    $('flash').style.opacity = 0;
+  }
+  S.phase = m.ph;
+  S.phaseT = m.pt;
+  S.liveT = m.lt;
+  S.round = m.rnd;
+  S.score = { T: m.sc[0], CT: m.sc[1] };
+  S.dmKills = { T: m.dk[0], CT: m.dk[1] };
+  m.f.forEach((a, i) => {
+    const f = S.fighters[i];
+    if (!f) return;
+    const [alive, x, y, z, yaw, pitch, crouch, hp, armor, helmet, act, pri, sec, money, k, d, as, hs, mv, bomb, fl, sp, kit, he, fla, sm, vx, vz] = a;
+    Object.assign(f, { kills: k, deaths: d, assists: as, hs, mvps: mv, money, armor, helmet: !!helmet, kit: !!kit, hasBomb: !!bomb });
+    if (f === me) {
+      if (sp !== me.sp) {
+        // hostitel mě oživil / nové kolo
+        me.sp = sp;
+        me.alive = true;
+        me.pos.set(x, 0, z);
+        me.y = y;
+        me.vy = 0;
+        me.vel.set(0, 0, 0);
+        me.yaw = yaw;
+        me.pitch = 0;
+        me.deadT = 0;
+        me.scope = 0;
+        me.reloadT = 0;
+        S.spectate = null;
+        S.deathCam = 0;
+        me.buyT = 12;
+        me.slots.primary = me.slots.primary && me.slots.primary.def.id === pri ? me.slots.primary : null;
+        me.slots.secondary = me.slots.secondary && me.slots.secondary.def.id === sec ? me.slots.secondary : null;
+        for (const s of ['primary', 'secondary']) if (me.slots[s]) me.slots[s].mag = me.slots[s].def.mag;
+        setSlotsFromNet(me, pri, sec, true);
+        me.active = me.slots.primary ? 'primary' : me.slots.secondary ? 'secondary' : 'knife';
+        refreshGunModel(me);
+      }
+      if (!alive && me.alive) {
+        me.alive = false;
+        me.deadT = 0;
+        me.scope = 0;
+        me.respawnT = 2.5;
+        if (!S.deathCam) S.deathCam = 2;
+        $('scope').hidden = true;
+        if (cfg.mode !== 'dm') setTimeout(() => S.active && !S.me.alive && nextSpectate(), 2000);
+      }
+      if (hp < me.hp) {
+        S.hurtT = Math.min(1, (S.hurtT || 0) + (me.hp - hp) / 60);
+        sfx.playerHurt();
+      }
+      me.hp = hp;
+      if (fl > me.flashT + 0.3) me.flashT = fl;
+      if (me.alive) setSlotsFromNet(me, pri, sec, true);
+      // granáty: věř hostiteli, ale jen když se liší
+      if (me.nades.he !== he || me.nades.flash !== fla || me.nades.smoke !== sm) me.nades = { he, flash: fla, smoke: sm };
+      if (me.active === 'bomb' && !me.hasBomb) {
+        me.active = me.slots.primary ? 'primary' : 'secondary';
+        refreshGunModel(me);
+      }
+      if (GRENADES[me.active] && !(me.nades[me.active] > 0)) {
+        me.active = me.slots.primary ? 'primary' : me.slots.secondary ? 'secondary' : 'knife';
+        refreshGunModel(me);
+      }
+      return;
+    }
+    // ostatní hráči
+    if (sp !== f.sp) {
+      f.sp = sp;
+      f.pos.set(x, 0, z);
+      f.deadT = 0;
+    }
+    if (f.alive && !alive) f.deadT = 0;
+    f.alive = !!alive;
+    f.hp = hp;
+    f.net = { x, y, z, yaw, pitch };
+    f.crouch = crouch;
+    f.vel.set(vx, 0, vz);
+    f.flashT = fl;
+    f.nades = { he, flash: fla, smoke: sm };
+    setSlotsFromNet(f, pri, sec, false);
+    const a2 = ACT[act] || 'secondary';
+    if (a2 !== f.active) {
+      f.active = a2;
+      refreshGunModel(f);
+    }
+  });
+  // bomba
+  if (m.b) {
+    const [st, bx, by, bz, tm, cid, pt, did, dt2, site] = m.b;
+    if (!S.bomb) S.bomb = { pos: v3(), mesh: null, beepT: 0 };
+    const b = S.bomb;
+    const shown = st === 'dropped' || st === 'planted';
+    if (shown && !b.mesh) {
+      b.mesh = bombMesh();
+      b.light = b.mesh.userData.light;
+      if (st === 'planted') b.mesh.rotation.x = Math.PI / 2;
+      env.scene.add(b.mesh);
+    } else if (!shown && b.mesh) {
+      env.scene.remove(b.mesh);
+      b.mesh = null;
+    }
+    if (st === 'planted' && b.state !== 'planted' && b.mesh) b.mesh.rotation.x = Math.PI / 2;
+    b.state = st;
+    b.pos.set(bx, by, bz);
+    if (b.mesh) b.mesh.position.copy(b.pos);
+    b.timer = tm;
+    b.carrier = cid >= 0 ? S.fighters[cid] : null;
+    b.plantT = pt;
+    b.defuser = did >= 0 ? S.fighters[did] : null;
+    b.defuseT = dt2;
+    b.site = site;
+  } else if (S.bomb?.mesh) {
+    env.scene.remove(S.bomb.mesh);
+    S.bomb = null;
+  }
+  // granáty v letu
+  const seen = new Set();
+  for (const [id, kind, nx, ny, nz] of m.n) {
+    seen.add(id);
+    let mesh = netState.puppetNades.get(id);
+    if (!mesh) {
+      mesh = buildGrenade(kind);
+      mesh.scale.setScalar(1.6);
+      env.scene.add(mesh);
+      netState.puppetNades.set(id, mesh);
+    }
+    mesh.position.set(nx, ny, nz);
+    mesh.rotation.x += 0.4;
+  }
+  for (const [id, mesh] of netState.puppetNades)
+    if (!seen.has(id)) {
+      env.scene.remove(mesh);
+      netState.puppetNades.delete(id);
+    }
+  // kouře
+  const seenS = new Set();
+  for (const [id, sx, sz, life] of m.s) {
+    seenS.add(id);
+    let s = netState.puppetSmokes.get(id);
+    if (!s) {
+      s = makeSmoke(v3(sx, 0, sz), life, id);
+      netState.puppetSmokes.set(id, s);
+    }
+    s.life = life;
+  }
+  for (const [id, s] of netState.puppetSmokes)
+    if (!seenS.has(id)) {
+      env.scene.remove(s.group);
+      S.smokes = S.smokes.filter((x) => x !== s);
+      netState.puppetSmokes.delete(id);
+    }
+  for (const e of m.e) handleEvent(e);
+}
+
+function handleEvent(e) {
+  const me = S.me;
+  switch (e.k) {
+    case 'msg':
+      centerMsg(e.a, e.b, e.c, true);
+      break;
+    case 'rend':
+      if (e.w === me.team) sfx.roundWin();
+      else sfx.roundLose();
+      break;
+    case 'kf': {
+      const a = e.a >= 0 ? S.fighters[e.a] : null;
+      const v = S.fighters[e.v];
+      addKillfeed(a, v, e.w, e.hs);
+      if (v) burst(v.pos.clone().setY(v.y + 1.2), 25, ['#ffc21a', '#fff3c4', '#ffffff'], 4, 0.08, 9, 1);
+      if (v === me) S.killedBy = a;
+      if (a === me && v !== me) sfx.headshot();
+      break;
+    }
+    case 'shot': {
+      if (e.i === me.id) break;
+      const f = S.fighters[e.i];
+      const o = v3(...e.o);
+      gunshot(e.c, !!e.s, clamp(1 - camDist(o) / 70, 0, 1));
+      if (f) f.flashT = Math.max(f.flashT, 0.05);
+      for (const p of e.e) {
+        const end = v3(...p);
+        addTracer(o, end, e.c === 'sniper');
+        burst(end, 3, ['#9a8a70', '#ffc21a'], 2, 0.04, 9, 0.4);
+      }
+      break;
+    }
+    case 'snd':
+      if (!e.p || camDist(v3(...e.p)) < 40) sfx[e.n]?.();
+      break;
+    case 'boom': {
+      const p = v3(...e.p);
+      sfx.boom();
+      burst(p.clone().setY(p.y + (e.big ? 1 : 0.3)), e.big ? 120 : 50, ['#ffe27a', '#ff8a3d', '#fff8ec', '#ffc21a'], e.big ? 18 : 10, e.big ? 0.35 : 0.15, 5, e.big ? 2 : 1);
+      break;
+    }
+    case 'chat':
+      if (e.t === me.team) toast(e.h);
+      break;
+    case 'dmg':
+      if (e.v === me.id) showDamageDir(v3(e.x, 0, e.z));
+      break;
+  }
+}
+
+function sendMyState() {
+  const f = S.me;
+  NET.send({ t: 'st', sp: f.sp, al: f.alive ? 1 : 0, x: r2(f.pos.x), y: r2(f.y), z: r2(f.pos.z), yaw: r2(f.yaw), pitch: r2(f.pitch), cr: r2(f.crouch), vx: r2(f.vel.x), vz: r2(f.vel.z), a: f.active, u: IN.use || (f.active === 'bomb' && IN.fire) ? 1 : 0 });
+}
+
+function updatePuppet(f, dt) {
+  if (!f.net || !f.alive) return;
+  const k = 1 - Math.exp(-dt * 16);
+  f.pos.x += (f.net.x - f.pos.x) * k;
+  f.pos.z += (f.net.z - f.pos.z) * k;
+  f.y += (f.net.y - f.y) * k;
+  f.yaw += angDiff(f.net.yaw, f.yaw) * k;
+  f.pitch += (f.net.pitch - f.pitch) * k;
+  f.walk += Math.hypot(f.vel.x, f.vel.z) * dt * 1.6;
+}
+
+function applyRemote(f, dt) {
+  const n = f.net;
+  if (!n || !f.alive || n.sp !== f.sp) return;
+  const k = 1 - Math.exp(-dt * 20);
+  f.pos.x += (n.x - f.pos.x) * k;
+  f.pos.z += (n.z - f.pos.z) * k;
+  f.y += (n.y - f.y) * k;
+  f.yaw += angDiff(n.yaw, f.yaw) * k;
+  f.pitch = n.pitch;
+  f.crouch = n.cr;
+  f.vel.set(n.vx, 0, n.vz);
+  f.onGround = n.y <= 0.05 || Math.abs(f.vy) < 0.01;
+  f.walk += Math.hypot(n.vx, n.vz) * dt * 1.6;
+  f.netUse = !!n.u;
+  f.flashT = Math.max(0, f.flashT - dt);
+  if (n.a !== f.active && (n.a === 'knife' || f.slots[n.a] || f.nades[n.a] > 0 || (n.a === 'bomb' && f.hasBomb))) {
+    f.active = n.a;
+    refreshGunModel(f);
+  }
+  if (f.buyT > 0) f.buyT -= dt;
+  if (f.spawnProtect > 0) f.spawnProtect -= dt;
+}
+
+function updateBombClient(dt) {
+  const b = S.bomb;
+  if (!b) return;
+  if (b.state === 'dropped' && b.mesh) b.mesh.rotation.y += dt;
+  if (b.state === 'planted') {
+    b.beepT -= dt;
+    if (b.beepT <= 0) {
+      b.beepT = b.timer > 10 ? 1 : b.timer > 4 ? 0.5 : 0.18;
+      if (camDist(b.pos) < 40) sfx.bombBeep(b.timer < 5);
+      if (b.light) b.light.visible = !b.light.visible;
+    }
+  }
+}
+
+/** Zpráva od protějšku během zápasu. Hostitel: peer = id hráče. Klient: peer = null. */
+export function netMessage(peer, m) {
+  if (!S.active || !NET) return;
+  if (NET.role === 'client') {
+    if (m.t === 'snap') applySnapshot(m);
+    else if (m.t === 'end') {
+      S.phase = 'over';
+      const me = S.me;
+      const myTeam = m.fighters.map((f, i) => ({ ...f, i })).filter((f) => f.team === me.team).sort((a, b) => b.kills - a.kills);
+      const mine = m.fighters[me.id];
+      if (document.pointerLockElement) document.exitPointerLock?.();
+      env.onEnd?.({
+        win: m.winner === me.team,
+        winner: m.winner,
+        score: m.score,
+        kills: mine.kills,
+        deaths: mine.deaths,
+        assists: mine.assists,
+        hs: mine.hs,
+        mvp: myTeam[0]?.i === me.id,
+        mode: cfg.mode,
+        fighters: m.fighters.map((f, i) => ({ ...f, me: i === me.id })),
+      });
+    }
+    return;
+  }
+  const f = S.fighters.find((x) => x.remote === peer);
+  if (!f) return;
+  switch (m.t) {
+    case 'st':
+      f.net = m;
+      break;
+    case 'hit': {
+      const v = S.fighters[m.v];
+      if (!v || !f.alive || !v.alive || v.team === f.team) break;
+      const def = m.w ? BY_ID[m.w] : null;
+      damage(v, f, def, m.part, m.dist, Math.min(m.base, 600), m.src || 'gun');
+      break;
+    }
+    case 'shot': {
+      const o = v3(...m.o);
+      gunshot(m.c, !!m.s, clamp(1 - camDist(o) / 70, 0, 1));
+      for (const p of m.e) addTracer(o, v3(...p), m.c === 'sniper');
+      f.flashT = Math.max(f.flashT, 0.05);
+      emit({ k: 'shot', i: f.id, c: m.c, s: m.s, o: m.o, e: m.e });
+      if (!m.s)
+        for (const b of S.fighters) {
+          if (!b.isBot || !b.alive || b.team === f.team || b.bot.target) continue;
+          if (b.pos.distanceTo(f.pos) < 35) {
+            b.bot.heard = f.pos.clone();
+            b.bot.heardT = S.t;
+          }
+        }
+      break;
+    }
+    case 'snd':
+      if (camDist(f.pos) < 30) sfx[m.n]?.();
+      emit({ k: 'snd', n: m.n, p: P3(f.pos) });
+      break;
+    case 'buy':
+      if (f.alive && inBuyZone(f)) buy(f, m.what);
+      break;
+    case 'nade':
+      if (f.alive && f.nades[m.k] > 0) {
+        const prev = f.active;
+        throwNade(f, m.k, m.o, m.v);
+        if (prev !== m.k) f.active = prev;
+      }
+      break;
+  }
+}
+
+/** Hráč se odpojil – na jeho místo nastoupí bot. */
+export function netDisconnected(peer) {
+  if (NET?.role !== 'host') return;
+  const f = S.fighters.find((x) => x.remote === peer);
+  if (!f) return;
+  f.remote = null;
+  f.isBot = true;
+  f.bot = { target: null, reactT: 0, aimErr: v3(), lastSeen: null, lastSeenT: -99, path: [], pathI: 0, goal: null, repathT: 0, thinkT: 0, strafe: 1, strafeT: 0, burst: 0, burstPause: 0, stuckT: 0, lastPos: v3(), holdYaw: null, noiseT: 0, nadeUsed: false, role: Math.random() < 0.5 ? 'A' : 'B' };
+  toast(`<b>${f.name}</b> se odpojil – hraje za něj bot.`);
+  emit({ k: 'chat', t: f.team, h: `<b>${f.name}</b> se odpojil – hraje za něj bot.` });
+  emit({ k: 'chat', t: f.team === 'T' ? 'CT' : 'T', h: `<b>${f.name}</b> se odpojil.` });
+  f.name += ' (bot)';
+}
+
+/** Pro testy: stisk spouště. */
+export function debugInput(o) {
+  Object.assign(IN, o);
 }

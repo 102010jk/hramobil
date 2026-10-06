@@ -35,6 +35,24 @@ Taktická 3D střílečka z vlastního pohledu ve stylu Counter-Strike, s témat
   filmové tónování (ACES), obloha s odrazy na kovu a viewmodel zbraně s rukama.
   Postavy a zbraně jsou skládané ze základních tvarů, protože hra nemá žádné externí 3D modely.
 
+## Multiplayer
+
+Záložka **Multiplayer** v menu. Funguje i na GitHub Pages, bez vlastního serveru:
+
+1. Jeden hráč založí **veřejné lobby** (objeví se ostatním v seznamu) nebo **soukromé** (dostane kód, např. `K7QXA`).
+2. Ostatní se připojí ze seznamu veřejných lobby, kódem, nebo přes odkaz z tlačítka *Zkopírovat pozvánku*.
+3. Každý si vybere tým (Kravaři / Vaječníci). Hostitel nastaví mapu, režim, obtížnost a velikost týmu.
+   Prázdná místa doplní boti. Pak hostitel spustí zápas.
+
+Hráči se spojují přímo mezi prohlížeči přes WebRTC ([PeerJS](https://peerjs.com/)). Veřejný server PeerJS pomáhá jen najít
+protějšek. **Hostitel** počítá celý zápas (kola, bomba, ekonomika, boti) a posílá stav ostatním 20× za sekundu.
+Ostatní posílají svůj pohyb, střelbu, nákupy a granáty.
+
+- Hostitel by měl mít nejlepší připojení a nechat hru otevřenou. Když odejde, zápas skončí.
+- Když se odpojí jiný hráč, nastoupí za něj bot.
+- Na některých sítích (školy, firmy, část mobilních operátorů) se přímé spojení nemusí podařit, protože hra nemá TURN server.
+- Pro LAN nebo testy jde použít vlastní PeerJS server: `…/index.html?peer=192.168.1.10:9000`.
+
 ## Ovládání
 
 - **PC:**
@@ -82,9 +100,10 @@ Ručně se obojí sestaví příkazem `node vajecna-krava/tools/build-pc.mjs` (p
 - `js/weapons.js`: 40 zbraní, nůž a granáty, včetně 3D modelů
 - `js/skins.js`: povrchové úpravy, vzácnosti, opotřebení, časky, náhledy
 - `js/characters.js`: agenti (vojáci), krávy, ruce v pohledu z první osoby
+- `js/net.js`: multiplayer: lobby (veřejná/soukromá), připojení kódem, přenos zpráv přes PeerJS
 - `js/profile.js`: inventář, vybavení, odměny, simulovaný trh (ukládá se do zařízení)
 - `js/ui.js`: menu, inventář, otevírání časek, trh, 3D prohlížení skinů, výsledky
 - `js/textures.js`: procedurální textury a obloha
 - `js/audio.js`: syntetizované zvuky (výstřely, bomba, časky, bučení…)
 - `tools/build-pc.mjs`, `launcher/`: sestavení jednoho HTML souboru a Windows exe (spouštěč v Go)
-- `js/vendor/three.module.min.js`: [three.js](https://threejs.org) r170 (MIT)
+- `js/vendor/three.module.min.js`: [three.js](https://threejs.org) r170 (MIT); `js/vendor/peerjs.min.js`: PeerJS 1.5.5 (MIT)

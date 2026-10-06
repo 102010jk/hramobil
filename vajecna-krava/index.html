@@ -108,6 +108,7 @@
           <button data-tab="play" class="on">Hrát</button>
           <button data-tab="inv">Inventář</button>
           <button data-tab="cases">Časky</button>
+          <button data-tab="mp">Multiplayer</button>
           <button data-tab="market">Trh</button>
           <button data-tab="settings">Nastavení</button>
         </nav>
@@ -148,6 +149,47 @@
           <button class="btn" id="btn-buykey">Koupit klíč (250 🥚)</button>
         </div>
         <div class="grid cases" id="cases-grid"></div>
+      </div>
+
+      <div class="panel" id="tab-mp" hidden>
+        <div id="mp-home" class="mp-grid">
+          <div class="box">
+            <h3>Tvoje přezdívka</h3>
+            <input class="field" id="mp-name" maxlength="16" placeholder="Přezdívka">
+            <h3>Založit lobby</h3>
+            <div class="row left">
+              <button class="btn primary" id="mp-host-pub">Veřejné lobby</button>
+              <button class="btn" id="mp-host-priv">Soukromé (jen kód)</button>
+            </div>
+            <h3>Připojit se kódem</h3>
+            <div class="row left">
+              <input class="field code" id="mp-code" maxlength="6" placeholder="KÓD">
+              <button class="btn primary" id="mp-join">Připojit</button>
+            </div>
+            <p class="muted" id="mp-status"></p>
+            <p class="muted">Hraje se přes internet přímo mezi prohlížeči (WebRTC). Hostitel drží celý zápas i boty – ať má nejlepší připojení a nechá hru otevřenou. Na některých školních/firemních sítích se spojení nemusí podařit.</p>
+          </div>
+          <div class="box">
+            <h3>Veřejná lobby <button class="btn small" id="mp-refresh">Obnovit</button></h3>
+            <div id="mp-list"><p class="muted">Klikni na Obnovit.</p></div>
+          </div>
+        </div>
+        <div id="mp-lobby" hidden>
+          <div class="box">
+            <div class="lobby-head">
+              <h2>Lobby <span class="code" id="mp-lcode"></span></h2>
+              <button class="btn small" id="mp-copy">Zkopírovat pozvánku</button>
+              <button class="btn small" id="mp-leave">Odejít</button>
+            </div>
+            <div class="teams">
+              <div class="team ct"><h3>🐮 Kravaři</h3><ul id="mp-ct"></ul><button class="btn small" data-team="CT">Přidat se</button></div>
+              <div class="team t"><h3>🥚 Vaječníci</h3><ul id="mp-t"></ul><button class="btn small" data-team="T">Přidat se</button></div>
+            </div>
+            <div id="mp-settings"></div>
+            <div class="row"><button class="btn primary big" id="mp-start">▶ Spustit zápas</button></div>
+            <p class="muted" id="mp-wait"></p>
+          </div>
+        </div>
       </div>
 
       <div class="panel" id="tab-market" hidden>
@@ -199,6 +241,7 @@
     <div id="menu-toasts"></div>
     <div class="loading" id="loading">Načítám farmu…</div>
   </div>
+  <script src="js/vendor/peerjs.min.js"></script>
   <script type="module" src="js/main.js"></script>
 </body>
 </html>

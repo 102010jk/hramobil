@@ -328,3 +328,30 @@ body.touch #toasts { bottom: auto; top: calc(70px + var(--sat)); }
   .card { padding: 14px; }
 }
 #btn-start { position: sticky; bottom: 8px; z-index: 2; box-shadow: 0 6px 24px rgba(0, 0, 0, 0.5); }
+
+/* ---------- multiplayer ---------- */
+.mp-grid { display: grid; grid-template-columns: minmax(280px, 1fr) 1fr; gap: 14px; }
+@media (max-width: 760px) { .mp-grid { grid-template-columns: 1fr; } }
+.field { width: 100%; background: var(--panel-2); border: 1px solid var(--line); color: var(--text); padding: 11px 12px; border-radius: 6px; font: 600 16px var(--font); user-select: text; -webkit-user-select: text; }
+.field.code { width: 140px; text-transform: uppercase; letter-spacing: 3px; font: 700 20px var(--head); }
+.row.left { justify-content: flex-start; }
+.row.left .btn { width: auto; }
+.lobby-row { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 10px; border: 1px solid var(--line); border-radius: 8px; margin-bottom: 6px; background: var(--panel-2); }
+.lobby-row b { font: 700 18px var(--head); }
+.lobby-row .btn { width: auto; }
+.lobby-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.lobby-head h2 { margin: 0; flex: 1; font: 700 28px var(--head); }
+.lobby-head .btn { width: auto; }
+.code { color: var(--accent); letter-spacing: 3px; }
+.teams { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 12px 0; }
+.team { border: 1px solid var(--line); border-radius: 8px; padding: 10px; }
+.team.ct h3 { color: var(--ct); }
+.team.t h3 { color: var(--t); }
+.team ul { list-style: none; margin: 6px 0; padding: 0; min-height: 60px; }
+.team li { padding: 5px 8px; border-radius: 4px; background: rgba(255, 255, 255, 0.05); margin-bottom: 4px; font-weight: 600; }
+.team li.me { outline: 1px solid var(--accent); }
+.team li small { color: var(--muted); font-weight: 400; }
+.team .btn { width: 100%; }
+#mp-settings { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 8px; margin-bottom: 10px; }
+#mp-settings label { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--muted); }
+#mp-settings select { background: var(--panel-2); color: var(--text); border: 1px solid var(--line); padding: 8px; border-radius: 6px; font: 600 15px var(--font); }
