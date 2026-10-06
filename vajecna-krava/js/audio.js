@@ -241,6 +241,83 @@ export const sfx = {
   },
 };
 
+/* ---------- CS zvuky ---------- */
+const GUN_SOUND = {
+  pistol: { f: 1600, f1: 500, dur: 0.14, body: 140, vol: 0.5 },
+  smg: { f: 2000, f1: 700, dur: 0.1, body: 160, vol: 0.4 },
+  rifle: { f: 1300, f1: 300, dur: 0.18, body: 110, vol: 0.6 },
+  sniper: { f: 900, f1: 150, dur: 0.45, body: 70, vol: 0.85 },
+  shotgun: { f: 700, f1: 120, dur: 0.35, body: 80, vol: 0.8 },
+  heavy: { f: 1100, f1: 250, dur: 0.16, body: 100, vol: 0.6 },
+};
+/** Výstřel; vol 0..1 podle vzdálenosti. */
+export function gunshot(cat, sil = false, vol = 1) {
+  if (!ready() || vol < 0.03) return;
+  const s = GUN_SOUND[cat] || GUN_SOUND.rifle;
+  const v = s.vol * vol * (sil ? 0.35 : 1);
+  const jitter = 0.9 + Math.random() * 0.2;
+  noise({ dur: s.dur * (sil ? 0.6 : 1), vol: v, f: s.f * jitter * (sil ? 2 : 1), f1: s.f1, q: 0.7, type: sil ? 'highpass' : 'lowpass' });
+  if (!sil) tone({ type: 'sine', f0: s.body * jitter, f1: 40, dur: s.dur * 1.2, vol: v * 0.6 });
+}
+
+Object.assign(sfx, {
+  headshot() {
+    if (!ready()) return;
+    tone({ type: 'triangle', f0: 2400, f1: 1800, dur: 0.12, vol: 0.18 });
+  },
+  hitBody() {
+    if (!ready()) return;
+    noise({ dur: 0.06, vol: 0.25, f: 600, q: 1.5 });
+  },
+  knife() {
+    if (!ready()) return;
+    noise({ dur: 0.15, vol: 0.2, f: 3000, f1: 800, q: 2, type: 'bandpass' });
+  },
+  bombBeep(fast = false) {
+    if (!ready()) return;
+    tone({ type: 'square', f0: 2100, dur: fast ? 0.05 : 0.08, vol: 0.07 });
+  },
+  plant() {
+    if (!ready()) return;
+    [700, 900, 1100, 1300].forEach((f, i) => tone({ type: 'square', f0: f, dur: 0.06, vol: 0.05, delay: i * 0.12 }));
+  },
+  defuseTick() {
+    if (!ready()) return;
+    tone({ type: 'square', f0: 900, dur: 0.03, vol: 0.05 });
+  },
+  caseTick() {
+    if (!ready()) return;
+    tone({ type: 'square', f0: 1800 + Math.random() * 200, dur: 0.025, vol: 0.05 });
+  },
+  unbox(rarity) {
+    if (!ready()) return;
+    const n = { mil: 2, res: 3, cla: 4, cov: 5, gold: 7 }[rarity] || 2;
+    for (let i = 0; i < n; i++) tone({ type: 'triangle', f0: 523 * Math.pow(2, i / 4), dur: 0.18, vol: 0.16, delay: i * 0.08 });
+  },
+  roundWin() {
+    if (!ready()) return;
+    [523, 659, 784, 1046].forEach((f, i) => tone({ type: 'sawtooth', f0: f, dur: 0.22, vol: 0.06, delay: i * 0.1 }));
+  },
+  roundLose() {
+    if (!ready()) return;
+    [392, 330, 262].forEach((f, i) => tone({ type: 'sawtooth', f0: f, dur: 0.3, vol: 0.06, delay: i * 0.14 }));
+  },
+  flashbang() {
+    if (!ready()) return;
+    noise({ dur: 0.4, vol: 0.6, f: 3000, f1: 1000, q: 0.5 });
+    tone({ type: 'sine', f0: 3500, dur: 2.5, vol: 0.05, attack: 0.05 });
+  },
+  smokePop() {
+    if (!ready()) return;
+    noise({ dur: 1.5, vol: 0.2, f: 500, f1: 200, q: 0.5, type: 'lowpass' });
+  },
+  buy() {
+    if (!ready()) return;
+    tone({ type: 'triangle', f0: 1200, dur: 0.06, vol: 0.12 });
+    tone({ type: 'triangle', f0: 1600, dur: 0.08, vol: 0.12, delay: 0.06 });
+  },
+});
+
 let hum = null;
 /** Zvuk UFO – zapnout/vypnout smyčku. */
 export function ufoHum(on) {

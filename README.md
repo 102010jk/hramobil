@@ -19,7 +19,7 @@ Ve hře najdeš:
 - moderní tmavý design, zoom dvěma prsty nebo tlačítky +/−, offline hraní (PWA / Android aplikace),
 - `npm run build:single` vyrobí celou hru jako **jeden HTML soubor** (`dist/veritdoku.html`), který jde otevřít i bez internetu.
 
-> **Nová hra v repozitáři: [Vaječná kráva](vajecna-krava/)** – 3D střílečka: ubraň krávu Bětku před ufony. Podrobnosti v [`vajecna-krava/README.md`](vajecna-krava/README.md).
+> **Nová hra v repozitáři: [Vaječná kráva](vajecna-krava/)** – taktická 3D střílečka ve stylu CS: Kravaři proti Vaječníkům, boti, 40 zbraní, časky a trh. Podrobnosti v [`vajecna-krava/README.md`](vajecna-krava/README.md).
 
 ## Spuštění lokálně
 
