@@ -1,14 +1,14 @@
-name: Build Android APK
+name: Build Android APK (Vaječná kráva)
 
 on:
   push:
-    paths-ignore:
+    paths:
       - 'vajecna-krava/**'
       - '.github/workflows/android-krava.yml'
   workflow_dispatch:
 
 concurrency:
-  group: android-${{ github.ref }}
+  group: android-krava-${{ github.ref }}
   cancel-in-progress: true
 
 permissions:
@@ -23,16 +23,31 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 22   # Capacitor 8 CLI vyžaduje Node >= 22
+          node-version: 22
           cache: npm
 
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: 21   # Capacitor 8 / AGP 8.13 / Gradle 8.14
+          java-version: 21
 
       - name: Install dependencies
         run: npm ci
+
+      # Stejný Capacitor projekt, ale jiná aplikace: přepíšeme konfiguraci a zdroje ikon jen v CI.
+      - name: Configure Capacitor for Vaječná kráva
+        run: |
+          cat > capacitor.config.json <<'JSON'
+          {
+            "appId": "cz.vajecnakrava.app",
+            "appName": "Vaječná kráva",
+            "webDir": "vajecna-krava",
+            "backgroundColor": "#6ec6ff",
+            "android": { "backgroundColor": "#6ec6ff" }
+          }
+          JSON
+          rm -rf assets
+          cp -r vajecna-krava/assets assets
 
       - name: Add Android platform
         run: npx cap add android
@@ -41,16 +56,14 @@ jobs:
         continue-on-error: true
         run: >
           npx capacitor-assets generate --android
-          --iconBackgroundColor '#0b0d17' --iconBackgroundColorDark '#0b0d17'
-          --splashBackgroundColor '#0b0d17' --splashBackgroundColorDark '#0b0d17'
+          --iconBackgroundColor '#6ec6ff' --iconBackgroundColorDark '#6ec6ff'
+          --splashBackgroundColor '#6ec6ff' --splashBackgroundColorDark '#6ec6ff'
 
       - name: Lock portrait orientation and set versionCode
         continue-on-error: true
         run: |
           sed -i 's|android:launchMode="singleTask"|android:launchMode="singleTask"\n            android:screenOrientation="portrait"|' android/app/src/main/AndroidManifest.xml
           sed -i "s/versionCode 1\$/versionCode ${{ github.run_number }}/" android/app/build.gradle
-          grep -n "screenOrientation" android/app/src/main/AndroidManifest.xml || true
-          grep -n "versionCode" android/app/build.gradle || true
 
       - name: Sync Capacitor
         run: npx cap sync android
@@ -60,28 +73,28 @@ jobs:
         run: ./gradlew assembleDebug --no-daemon
 
       - name: Rename APK
-        run: cp android/app/build/outputs/apk/debug/app-debug.apk Veritdoku.apk
+        run: cp android/app/build/outputs/apk/debug/app-debug.apk VajecnaKrava.apk
 
       - uses: actions/upload-artifact@v4
         with:
-          name: Veritdoku-apk
-          path: Veritdoku.apk
+          name: VajecnaKrava-apk
+          path: VajecnaKrava.apk
           if-no-files-found: error
 
-      - name: Remove previous apk-latest release
+      - name: Remove previous apk-vajecna-krava release
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release delete apk-latest --yes --cleanup-tag --repo "${{ github.repository }}" || true
+        run: gh release delete apk-vajecna-krava --yes --cleanup-tag --repo "${{ github.repository }}" || true
 
-      - name: Publish release apk-latest
+      - name: Publish release apk-vajecna-krava
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: apk-latest
+          tag_name: apk-vajecna-krava
           target_commitish: ${{ github.sha }}
-          name: Veritdoku – nejnovější APK
+          name: Vaječná kráva – nejnovější APK
           body: |
-            Nejnovější sestavení Androidu (debug APK) z commitu ${{ github.sha }} (větev `${{ github.ref_name }}`).
-            Stáhni `Veritdoku.apk`, otevři ho v telefonu a povol instalaci z neznámých zdrojů.
+            Hra Vaječná kráva – debug APK z commitu ${{ github.sha }} (větev `${{ github.ref_name }}`).
+            Stáhni `VajecnaKrava.apk`, otevři ho v telefonu a povol instalaci z neznámých zdrojů.
           prerelease: true
-          make_latest: true
-          files: Veritdoku.apk
+          make_latest: false
+          files: VajecnaKrava.apk

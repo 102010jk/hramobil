@@ -28,6 +28,14 @@ jobs:
         with:
           enablement: true
 
+      # Vaječná kráva běží na webu jako /vajecna-krava/
+      - name: Add Vaječná kráva
+        run: |
+          if [ -d vajecna-krava ]; then
+            cp -r vajecna-krava www/vajecna-krava
+            rm -rf www/vajecna-krava/assets
+          fi
+
       - uses: actions/upload-pages-artifact@v3
         with:
           path: www
