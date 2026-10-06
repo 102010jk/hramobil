@@ -53,6 +53,21 @@ Taktická 3D střílečka z vlastního pohledu ve stylu Counter-Strike, s témat
 npx http-server vajecna-krava -p 8080 -c-1   # http://localhost:8080
 ```
 
+## Na PC a pro kamaráda
+
+Na GitHubu v Releases → **`vajecna-krava-pc`** jsou dva soubory (staví je workflow „Build PC (Vaječná kráva)“):
+
+- **`VajecnaKrava-HTML.zip`** (~200 kB): nejmenší, co se dá poslat. Uvnitř je jeden soubor `vajecna-krava.html`.
+  Stačí ho rozbalit a otevřít dvojklikem v Chrome, Edge nebo Firefoxu. Funguje na Windows, Macu i Linuxu, i bez internetu.
+- **`VajecnaKrava-Windows.zip`** (~2,6 MB): obsahuje `VajecnaKrava.exe`. Po spuštění se hra otevře ve vlastním okně
+  (přes Edge nebo Chrome, které na Windows 10/11 bývají) a po zavření okna se exe samo ukončí.
+  Exe není podepsané, takže Windows může ukázat „Systém Windows ochránil váš počítač“.
+  Pak stačí kliknout na **Další informace → Přesto spustit**.
+
+Postup se ukládá do prohlížeče, ve kterém hra běží: u HTML do toho, ve kterém ho otevřeš, u exe do Edge/Chrome.
+
+Ručně se obojí sestaví příkazem `node vajecna-krava/tools/build-pc.mjs` (potřeba je Node a Go), výsledek je ve `vajecna-krava/dist/`.
+
 ## Do telefonu
 
 - **Android APK:** GitHub → Releases → **`apk-vajecna-krava`** → `VajecnaKrava.apk`
@@ -71,4 +86,5 @@ npx http-server vajecna-krava -p 8080 -c-1   # http://localhost:8080
 - `js/ui.js`: menu, inventář, otevírání časek, trh, 3D prohlížení skinů, výsledky
 - `js/textures.js`: procedurální textury a obloha
 - `js/audio.js`: syntetizované zvuky (výstřely, bomba, časky, bučení…)
+- `tools/build-pc.mjs`, `launcher/`: sestavení jednoho HTML souboru a Windows exe (spouštěč v Go)
 - `js/vendor/three.module.min.js`: [three.js](https://threejs.org) r170 (MIT)
