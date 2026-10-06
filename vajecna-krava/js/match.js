@@ -611,9 +611,23 @@ function spawnFighter(f, p) {
   f.roundKills = 0;
   f.punchP = f.punchY = 0;
   f.scope = 0;
-  // pohled ke středu mapy
-  const c = map.siteCenter[f.team === 'T' ? 'A' : 'B'];
-  f.yaw = Math.atan2(-(c.x * 0.3 - p.x), -(0 - p.z));
+  // pohled k nejbližší průchozí straně (směrem do mapy)
+  let best = 0;
+  let bestN = -1;
+  for (let k = 0; k < 16; k++) {
+    const a = (k / 16) * Math.PI * 2;
+    let n = 0;
+    for (let d = 1; d <= 12; d++) {
+      const [i, j] = map.toCell(p.x - Math.sin(a) * d * 1.2, p.z - Math.cos(a) * d * 1.2);
+      if (!map.walkable(i, j)) break;
+      n++;
+    }
+    if (n > bestN) {
+      bestN = n;
+      best = a;
+    }
+  }
+  f.yaw = best;
   f.pitch = 0;
   f.model.visible = true;
   if (f.bot) {

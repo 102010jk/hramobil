@@ -15,7 +15,9 @@ Taktická 3D střílečka z vlastního pohledu ve stylu Counter-Strike, s témat
   - mají reakční dobu a chybu míření, střílejí dávkami, úkrokují a přikrčují se,
   - nakupují podle peněz,
   - pokládají a zneškodňují bombu, hází granáty a sbírají zbraně padlých.
-- **3 mapy:** *Kravín* (prašná farma), *Líheň* (průmyslová líheň), *Pastvina* (vesnice s loukou).
+- **5 map:** *Kravín* (prašná farma), *Líheň* (průmyslová líheň), *Pastvina* (vesnice s loukou),
+  *Přelud* (rozložení podle Mirage: dlouhý mid, apartmány na B, rampa a palác na A) a
+  *Jaderka* (podle Nuke: venkovní dvůr, chatka a hala A, rampa a průduchy na B; vše v jednom patře).
   Po mapách se pasou krávy a snáší vejce, která doplňují zdraví.
 - **40 zbraní** v 6 kategoriích (pistole, samopaly, pušky, odstřelovačky, brokovnice, těžké), např. AK-47 Bučák,
   M4A4 Mléčný, AWP Vaječný drak, Pouštní Kráva, Negev Neděle.
@@ -61,7 +63,7 @@ npx http-server vajecna-krava -p 8080 -c-1   # http://localhost:8080
 
 - `js/main.js`: renderer, světla, obloha, smyčka
 - `js/match.js`: zápas (hráč, boti, střelba, kola, bomba, ekonomika, granáty, HUD, nákup, skóre)
-- `js/maps.js`: 3 mapy (grid), kolize, raycast pro střelbu, A* navigace
+- `js/maps.js`: 5 map (grid), kolize, raycast pro střelbu, A* navigace
 - `js/weapons.js`: 40 zbraní, nůž a granáty, včetně 3D modelů
 - `js/skins.js`: povrchové úpravy, vzácnosti, opotřebení, časky, náhledy
 - `js/characters.js`: agenti (vojáci), krávy, ruce v pohledu z první osoby
